@@ -6,7 +6,7 @@ class LLMClient(ABC):
     """Abstract base class for LLM clients."""
 
     @abstractmethod
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
         """
         Invoke the LLM with a list of messages and a list of tools.
 
@@ -23,7 +23,7 @@ class OllamaClient(LLMClient):
         self.model = model
         self.client = ollama.Client()
 
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
         """
         Invoke the Ollama model with a list of messages and a list of tools.
         """
@@ -33,7 +33,7 @@ class OllamaClient(LLMClient):
                 messages=messages,
                 tools=tools,
             )
-            return response
+            return response.model_dump()
         except Exception as e:
             print(f"An error occurred: {e}")
             return {}
