@@ -31,20 +31,30 @@ def modify_tool_description(tool: Dict[str, Any], modification: str) -> Dict[str
         
     return modified_tool
 
-def defense_mechanism(tool: Dict[str, Any], defense_type: str, llm_client: LLMClient) -> Dict[str, Any]:
+def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client: LLMClient) -> str:
     """
     Applies a defense mechanism to a tool.
+
+    Args:
+        tool: The tool to apply the defense mechanism to (assumed to be in the format of the OpenAI API).
+        defense_type: The type of defense mechanism to apply.
+        llm_client: The LLM client to use.
+
+    Returns:
+        The modified tool description.
     """
+    assert 'function' in tool, "Tool must be in the format of the OpenAI API."
     modified_tool = copy.deepcopy(tool)
     if defense_type == "noop":
         pass
-    elif defense_type == "reword_description":
-        modified_tool['description'] = llm_defense_mechanism(modified_tool['description'], "data/prompts/reword", llm_client)
-    elif defense_type == "objective_description":
-        modified_tool['description'] = llm_defense_mechanism(modified_tool['description'], "data/prompts/objective", llm_client)
-
+    elif defense_type == "reword":
+        return llm_defense_mechanism(modified_tool['function']['description'], "data/prompts/reword", llm_client)
+    elif defense_type == "objective":
+        return llm_defense_mechanism(modified_tool['function']['description'], "data/prompts/objective", llm_client)
+    else:
+        raise ValueError(f"Unknown defense type: {defense_type}")
     
-    return modified_tool
+    return modified_tool['function']['description']
 
 def llm_defense_mechanism(description: str, prompt_path: str, llm_client: LLMClient) -> str:
     """

@@ -1,9 +1,10 @@
 from typing import List, Dict, Any
-from core.utils import load_data, save_results
-from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api
+from core.utils import load_data
+from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description
 from core.llm_clients import LLMClient, OllamaClient
 from tqdm import tqdm
 import json
+import copy
 
 class Experiment:
     def __init__(self, llm_client: LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str):
@@ -22,40 +23,49 @@ class Experiment:
                 original_tool = item['function'][0]
 
                 # Duplicate and rename
-                tool1, tool2 = duplicate_and_rename_tool(original_tool)
+                tools = duplicate_and_rename_tool(original_tool)
+
+                # For now, tool 2 is always the modified tool
                 
                 # Modify one of the tools
-                modified_tool2 = modify_tool_description(tool2, self.modification)
-                modified_tool2['modified'] = True  # Mark as modified
+                tools[1] = modify_tool_description(tools[1], self.modification)
 
-                # Prepare tools for LLM (remove 'modified' field if present)
-                tool1_for_llm = format_tool_for_openai_api(tool1)
-                tool2_for_llm = format_tool_for_openai_api({k: v for k, v in modified_tool2.items() if k != 'modified'})
-                tools_for_llm = [tool1_for_llm, tool2_for_llm]
+                # Format tools for LLM
+                tools = [format_tool_for_openai_api(tool) for tool in tools]
+                
 
-                # Invoke LLM
-                response = self.llm_client.invoke(messages, tools_for_llm)
+                # Run experiment with each tool order   
+                for defense_mechanism in ["noop", self.defense_mechanism]:
+                    defended_tools = [copy.deepcopy(tool) for tool in tools]
+                    # Apply defense mechanism
+                    for i, tool in enumerate(defended_tools):
+                        defended_tools[i]['function']['description'] = get_defended_description(tool, defense_mechanism, self.llm_client)
 
-                # print(f"Trial {trial_type}: {response}")
+                    for trial_type in ["original-first", "biased-first"]:
+                        # Invoke LLM
+                        response = self.llm_client.invoke(messages, defended_tools if trial_type == "original-first" else defended_tools[::-1])
 
-                # Record result (store tools with 'modified' field for analysis)
-                result = self._record_result(item, response, [tool1, modified_tool2], messages)
-                f.write(json.dumps(result) + "\n")
-                # break #TODO: remove this
+                        # Store original descriptions and post-defense descriptions
+                        for i, tool in enumerate(tools):
+                            tool['original_description'] = tool['function']['description']
+                            tool['post_defense_description'] = defended_tools[i]['function']['description']
+                        # Record result (store tools with 'modified' field for analysis)
+                        result = self._record_result(item, response, tools, trial_type, defense_mechanism)
+                        f.write(json.dumps(result) + "\n")
 
-    def _record_result(self, item: Dict[str, Any], response: Dict[str, Any], tools: List[Dict[str, Any]], messages: List[Dict[str, Any]]):
+    def _record_result(self, item: Dict[str, Any], response: Dict[str, Any], tools: List[Dict[str, Any]], trial_type: str, defense_used: str):
         called_tool_name = None
         if response and 'message' in response and response['message']['tool_calls']:
             called_tool_name = response['message']['tool_calls'][0]['function']['name']
         result = {
             "id": item["id"],
             "question": item["question"],
-            # "messages": messages,
             "original_tool": item["function"][0],
             "tools_provided": tools,
-            # "llm_response": response,
-            "called_tool_name": called_tool_name,
-            "modification": self.modification
+            "called_tool_name": called_tool_name,  
+            "trial_type": trial_type,
+            "modification": self.modification,
+            "defense_used": defense_used
         }
         self.results.append(result)
         return result

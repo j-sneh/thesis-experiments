@@ -37,13 +37,3 @@ class OllamaClient(LLMClient):
         except Exception as e:
             print(f"An error occurred: {e}")
             return {}
-
-class AnthropicClient(LLMClient):
-    # TODO: Implement Anthropic client
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
-        raise NotImplementedError
-
-class OpenAIClient(LLMClient):
-    # TODO: Implement OpenAI client
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
-        raise NotImplementedError
