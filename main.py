@@ -8,7 +8,6 @@ def main():
     parser.add_argument("--output-path", type=str, default="results.jsonl", help="Path to save the results.")
     parser.add_argument("--modification", type=str, default="assertive_cue", help="Modification to apply to the tool description.")
     parser.add_argument("--defense-mechanism", type=str, default="objective", help="Defense mechanism to apply to the tool description.")
-    
     args = parser.parse_args()
 
     run_experiment(
