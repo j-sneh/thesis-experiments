@@ -48,9 +48,9 @@ def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client
     if defense_type == "noop":
         pass
     elif defense_type == "reword":
-        return llm_defense_mechanism(modified_tool['function']['description'], "data/prompts/reword", llm_client)
+        return llm_defense_mechanism(modified_tool['function']['description'], "data/prompts/defender/reword", llm_client)
     elif defense_type == "objective":
-        return llm_defense_mechanism(modified_tool['function']['description'], "data/prompts/objective", llm_client)
+        return llm_defense_mechanism(modified_tool['function']['description'], "data/prompts/defender/objective", llm_client)
     else:
         raise ValueError(f"Unknown defense type: {defense_type}")
     

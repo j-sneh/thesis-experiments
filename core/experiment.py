@@ -54,15 +54,17 @@ class Experiment:
                         f.write(json.dumps(result) + "\n")
 
     def _record_result(self, item: Dict[str, Any], response: Dict[str, Any], tools: List[Dict[str, Any]], trial_type: str, defense_used: str):
-        called_tool_name = None
+        called_tool_names = None
         if response and 'message' in response and response['message']['tool_calls']:
-            called_tool_name = response['message']['tool_calls'][0]['function']['name']
+            # TODO: Handle multiple tool calls
+            called_tool_names = [r['function']['name'] for r in response['message']['tool_calls']]
+
         result = {
             "id": item["id"],
             "question": item["question"],
             "original_tool": item["function"][0],
             "tools_provided": tools,
-            "called_tool_name": called_tool_name,  
+            "called_tool_names": called_tool_names,  
             "trial_type": trial_type,
             "modification": self.modification,
             "defense_used": defense_used
