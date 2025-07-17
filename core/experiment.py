@@ -102,7 +102,7 @@ class Experiment:
                         if percent > best_success:
                             best_success = percent
                             best_description = description
-    
+
                         if percent >= target_success:
                             break
 
@@ -131,10 +131,14 @@ class Experiment:
                             "tools_provided": tools,
                             "called_tool_names": [r['function']['name'] for r in response['message']['tool_calls']] if response and 'message' in response and response['message']['tool_calls'] else None,
                             "trial_type": trial_type,
-                            "modification": self.modification,
-                            "defense_used": defense,
-                            "attacker_mode": self.attacker_mode
+                            "defense_used": defense
                         }
+
+                        if not self.attacker_mode:
+                            result['modification'] = self.modification
+                        else:
+                            result['attacker_mode'] = self.attacker_mode
+                            
                         self.results.append(result)
                         output_file.write(json.dumps(result) + "\n")
         print(f"Experiment finished. Results saved to {self.output_path}")
