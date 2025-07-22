@@ -159,7 +159,7 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
         defender_llm_model: Model to use for defender (if different from main model)
     """
     llm_client = OllamaClient(model_name)
-    attacker_llm_client = OllamaClient(attacker_llm_model) if attacker_llm_model else llm_client      
+    attacker_llm_client = OllamaClient(attacker_llm_model) if attacker_llm_model else llm_client     
     defender_llm_client = OllamaClient(defender_llm_model) if defender_llm_model else llm_client
 
     experiment = Experiment(
