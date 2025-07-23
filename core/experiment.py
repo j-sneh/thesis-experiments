@@ -9,9 +9,12 @@ import copy
 import os
 
 class Experiment:
-    def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack"):
+    def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None):
         self.llm_client = llm_client
         self.data = load_data(data_path)
+        # Limit dataset size if specified
+        if dataset_size is not None:
+            self.data = self.data[:dataset_size]
         self.output_path = output_path
         self.modification = modification
         self.defense_mechanism = defense_mechanism
@@ -19,6 +22,7 @@ class Experiment:
         self.attack_mode = attack_mode
         self.attacker_llm_client = attacker_llm_client
         self.defender_llm_client = defender_llm_client
+        self.max_attempts = max_attempts
         self.attacker_prompt_path = None
 
         if attack_mode == "attack":
@@ -71,14 +75,13 @@ class Experiment:
         return defended_tools
 
     def run_suffix_attack(self):
-        max_attempts = 5  # Number of improvement rounds
         suffix = ""
         history = []
         
         with open(f"{self.output_path}.jsonl", "a", encoding="utf-8") as output_file, open(f"{self.output_path}-history.jsonl", "a", encoding="utf-8") as history_file:
-            for attempt in range(max_attempts):
+            for attempt in range(self.max_attempts):
                 # Use the attacker prompt and feedback to generate a new suffix
-                suffix, improvement = self.attack_get_improvement(None, history, self.attack_mode)
+                improvement, suffix = self.attack_get_improvement(None, history, self.attack_mode)
                 total_count = 0
                 total_calls = 0
                 item_stats = []
@@ -87,7 +90,7 @@ class Experiment:
                     original_tool = item['function'][0]
                     tools = duplicate_and_rename_tool(original_tool)
                     # Apply current suffix to tool2's description
-                    tools[1]['description'] = tools[1]['description'] + " " + suffix if suffix else tools[1]['description']
+                    tools[1]['description'] += suffix
                     function_name_2 = tools[1]['name']
 
                     formatted_tools = [format_tool_for_openai_api(t) for t in tools]
@@ -152,7 +155,6 @@ class Experiment:
                 tools = duplicate_and_rename_tool(original_tool)
                 # If attack mode, use attacker LLM to modify tool 2 with feedback loop
                 if self.attack_mode == "attack":
-                    max_attempts = 5 # TODO: Make this configurable
                     target_success = 100.0 
                     history = []
                     percent = 0.0
@@ -161,7 +163,7 @@ class Experiment:
 
                     best_success = 0.0
                     best_description = original_tool['description']
-                    for attempt in range(max_attempts):
+                    for attempt in range(self.max_attempts):
                         # Set tool2's description to the latest
                         improvement, description = self.attack_get_improvement(tools[1], history, self.attack_mode)
 
@@ -234,7 +236,7 @@ class Experiment:
                         output_file.write(json.dumps(result) + "\n")
         print(f"Experiment finished. Results saved to {self.output_path}.jsonl and {self.output_path}-history.jsonl.")
 
-def run_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None):
+def run_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None):
     """
     Run an LLM tool selection experiment.
     
@@ -247,6 +249,8 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
         attacker_mode: Attack mode string: 'attack', 'suffix-attack', or 'no-attack'
         attacker_llm_model: Model to use for attacker (if different from main model)
         defender_llm_model: Model to use for defender (if different from main model)
+        max_attempts: Maximum number of attack attempts
+        dataset_size: Number of items to use from the dataset (None for all items)
     """
     llm_client = OllamaClient(model_name)
     attacker_llm_client = OllamaClient(attacker_llm_model) if attacker_llm_model else llm_client     
@@ -260,7 +264,9 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
         output_path=output_path,
         modification=modification,
         defense_mechanism=defense_mechanism,
-        attack_mode=attacker_mode
+        attack_mode=attacker_mode,
+        max_attempts=max_attempts,
+        dataset_size=dataset_size
     )
     experiment.run()
 
