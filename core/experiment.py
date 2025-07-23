@@ -29,6 +29,8 @@ class Experiment:
             self.attacker_prompt_path = "data/prompts/attacker/robust-to-reword"
         elif attack_mode == "suffix-attack":
             self.attacker_prompt_path = "data/prompts/attacker/suffix-robust-to-reword"
+        elif attack_mode == "no-attack":
+            self.attacker_prompt_path = None
         else:
             raise ValueError(f"Invalid attack mode: {attack_mode}")
 
@@ -107,21 +109,24 @@ class Experiment:
                         item_total_count += count
                         item_total_calls += len(called_tool_names)
 
+                        result = {
+                            "id": item["id"],
+                            "question": item["question"],
+                            "original_tool": item["function"][0],
+                            "tools_provided": tools,
+                            "called_tool_names": [r['function']['name'] for r in response['message']['tool_calls']] if response and 'message' in response and response['message']['tool_calls'] else None,
+                            "trial_type": trial_type,
+                            "defense_used": self.defense_mechanism,
+                            "modification": suffix,
+                            "attack_mode": self.attack_mode,
+                        }
+                        output_file.write(json.dumps(result) + "\n")
+
                     percent = 100.0 * item_total_count / item_total_calls if item_total_calls > 0 else 0.0
                     item_stats.append({'id': item['id'], 'percent': percent})
                     total_count += item_total_count
                     total_calls += item_total_calls
 
-                    result = {
-                        "id": item["id"],
-                        "question": item["question"],
-                        "original_tool": item["function"][0],
-                        "tools_provided": tools,
-                        "called_tool_names": [r['function']['name'] for r in response['message']['tool_calls']] if response and 'message' in response and response['message']['tool_calls'] else None,
-                        "trial_type": trial_type,
-                        "defense_used": self.defense_mechanism,
-                    }
-                    output_file.write(json.dumps(result) + "\n")
 
                 # Calculate aggregate statistics
                 overall_percent = 100.0 * total_count / total_calls if total_calls > 0 else 0.0
@@ -224,13 +229,12 @@ class Experiment:
                             "tools_provided": tools,
                             "called_tool_names": [r['function']['name'] for r in response['message']['tool_calls']] if response and 'message' in response and response['message']['tool_calls'] else None,
                             "trial_type": trial_type,
-                            "defense_used": defense
+                            "defense_used": defense,
+                            "attack_mode": self.attack_mode,
                         }
 
                         if self.attack_mode == "no-attack":
                             result['modification'] = self.modification
-
-                        result['attack_mode'] = self.attack_mode
                             
                         self.results.append(result)
                         output_file.write(json.dumps(result) + "\n")
