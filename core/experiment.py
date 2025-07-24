@@ -240,7 +240,7 @@ class Experiment:
                         output_file.write(json.dumps(result) + "\n")
         print(f"Experiment finished. Results saved to {self.output_path}.jsonl and {self.output_path}-history.jsonl.")
 
-def run_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None):
+def run_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, engine="ollama"):
     """
     Run an LLM tool selection experiment.
     
@@ -255,14 +255,15 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
         defender_llm_model: Model to use for defender (if different from main model)
         max_attempts: Maximum number of attack attempts
         dataset_size: Number of items to use from the dataset (None for all items)
+        engine: Inference engine to use ('ollama' or 'vllm')
     """
-    llm_client = VLLMClient(model_name)
-    attacker_llm_client = VLLMClient(attacker_llm_model) if attacker_llm_model else llm_client     
-    defender_llm_client = VLLMClient(defender_llm_model) if defender_llm_model else llm_client
+    
+        
 
-    # llm_client = OllamaClient(model_name)
-    # attacker_llm_client = OllamaClient(attacker_llm_model) if attacker_llm_model else llm_client     
-    # defender_llm_client = OllamaClient(defender_llm_model) if defender_llm_model else llm_client
+    client = VLLMClient if engine == "vllm" else OllamaClient
+    llm_client = client(model_name)
+    attacker_llm_client = client(attacker_llm_model) if attacker_llm_model else llm_client     
+    defender_llm_client = client(defender_llm_model) if defender_llm_model else llm_client
 
     experiment = Experiment(
         llm_client=llm_client,

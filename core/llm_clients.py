@@ -3,6 +3,8 @@ from typing import List, Dict, Any
 import ollama
 import vllm
 
+from vllm.entrypoints.openai.tool_parsers import Hermes2ProToolParser, Llama3JsonToolParser
+
 class LLMClient(ABC):
     """Abstract base class for LLM clients."""
 
@@ -34,6 +36,7 @@ class OllamaClient(LLMClient):
                 messages=messages,
                 tools=tools,
             )
+            raise(Exception(response.model_dump()))
             return response.model_dump()
         except Exception as e:
             print(f"An error occurred: {e}")
@@ -45,7 +48,22 @@ class VLLMClient(LLMClient):
     def __init__(self, model: str):
         self.model = model
         # float16 for quantization purposes
-        self.llm = vllm.LLM(model=model, dtype="float16")
+        # TODO: look at https://github.com/vllm-project/llm-compressor for quantization
+
+        # max_model_len was 37440 because this is the size of the KV cache
+        # 32768 is used because it is the max len (for pos embeddings) in qwen2.5
+        self.llm = vllm.LLM(model=model, dtype='half', max_model_len=32768)
+        self.tokenizer = self.llm.get_tokenizer()
+
+
+
+        if model.lower().startswith("qwen"):
+            self.tool_parser = Hermes2ProToolParser(self.tokenizer)
+            self.tool_parser = None
+        elif model.lower().startswith("meta-llama"):
+            self.tool_parser = Llama3JsonToolParser(self.tokenizer)
+        else:
+            self.tool_parser = None
 
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
         """
@@ -53,13 +71,25 @@ class VLLMClient(LLMClient):
         """
 
         # Sampling parameters are set by default
+        sampling_params = vllm.SamplingParams(temperature=0.8, top_p=0.05, max_tokens=1024)
         try:    
             response =self.llm.chat(
                 messages=messages,
                 tools=tools,
+                sampling_params=sampling_params
             )
         except Exception as e:
             print(f"An error occurred: {e}")
             return {}
+
+        output = response[0].outputs[0].text.strip()
+
+        print(response[0])
+
+        tools = None
+        if self.tool_parser:
+            tools = self.tool_parser.extract_tool_calls(output, None)
+
+        raise Exception(f"Tools: {tools}, Output: {output}")
 
         return response.model_dump()
