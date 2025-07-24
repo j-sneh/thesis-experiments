@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from typing import Optional, Tuple
 from core.utils import load_data
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description
-from core.llm_clients import LLMClient, OllamaClient
+from core.llm_clients import LLMClient, OllamaClient, VLLMClient
 from tqdm import tqdm
 import json
 import copy
@@ -256,9 +256,13 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
         max_attempts: Maximum number of attack attempts
         dataset_size: Number of items to use from the dataset (None for all items)
     """
-    llm_client = OllamaClient(model_name)
-    attacker_llm_client = OllamaClient(attacker_llm_model) if attacker_llm_model else llm_client     
-    defender_llm_client = OllamaClient(defender_llm_model) if defender_llm_model else llm_client
+    llm_client = VLLMClient(model_name)
+    attacker_llm_client = VLLMClient(attacker_llm_model) if attacker_llm_model else llm_client     
+    defender_llm_client = VLLMClient(defender_llm_model) if defender_llm_model else llm_client
+
+    # llm_client = OllamaClient(model_name)
+    # attacker_llm_client = OllamaClient(attacker_llm_model) if attacker_llm_model else llm_client     
+    # defender_llm_client = OllamaClient(defender_llm_model) if defender_llm_model else llm_client
 
     experiment = Experiment(
         llm_client=llm_client,

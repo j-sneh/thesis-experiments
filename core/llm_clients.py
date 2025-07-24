@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 import ollama
+import vllm
 
 class LLMClient(ABC):
     """Abstract base class for LLM clients."""
@@ -37,3 +38,28 @@ class OllamaClient(LLMClient):
         except Exception as e:
             print(f"An error occurred: {e}")
             return {}
+
+class VLLMClient(LLMClient):
+    """LLM client for VLLM."""
+
+    def __init__(self, model: str):
+        self.model = model
+        # float16 for quantization purposes
+        self.llm = vllm.LLM(model=model, dtype="float16")
+
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
+        """
+        Invoke the VLLM model with a list of messages and a list of tools.
+        """
+
+        # Sampling parameters are set by default
+        try:    
+            response =self.llm.chat(
+                messages=messages,
+                tools=tools,
+            )
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return {}
+
+        return response.model_dump()
