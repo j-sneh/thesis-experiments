@@ -36,7 +36,6 @@ class OllamaClient(LLMClient):
                 messages=messages,
                 tools=tools,
             )
-            raise(Exception(response.model_dump()))
             return response.model_dump()
         except Exception as e:
             print(f"An error occurred: {e}")

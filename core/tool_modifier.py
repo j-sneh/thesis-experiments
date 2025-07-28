@@ -17,7 +17,7 @@ def modify_tool_description(tool: Dict[str, Any], modification: str) -> Dict[str
     Modifies the description of a tool based on the given modification strategy.
     """
     modified_tool = copy.deepcopy(tool)
-    if modification == "noop":
+    if modification == "noop" or modification == "none":
         pass
     elif modification == "remove_description":
         modified_tool['description'] = ""
@@ -45,7 +45,7 @@ def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client
     """
     assert 'function' in tool, "Tool must be in the format of the OpenAI API."
     modified_tool = copy.deepcopy(tool)
-    if defense_type == "noop":
+    if defense_type == "noop" or defense_type == "none":
         pass
     elif defense_type == "reword":
         return llm_defense_mechanism(modified_tool['function']['description'], "data/prompts/defender/reword", llm_client)
