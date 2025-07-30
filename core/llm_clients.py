@@ -4,7 +4,9 @@ import ollama
 import vllm
 
 from vllm.entrypoints.openai.tool_parsers import Hermes2ProToolParser, Llama3JsonToolParser
+from vllm.reasoning import Qwen3ReasoningParser
 
+# TODO: standardise tool call response format so it matches OpenAI's format
 class LLMClient(ABC):
     """Abstract base class for LLM clients."""
 
@@ -58,18 +60,20 @@ class VLLMClient(LLMClient):
 
         if model.lower().startswith("qwen"):
             self.tool_parser = Hermes2ProToolParser(self.tokenizer)
-            self.tool_parser = None
+            self.reasoning_parser = Qwen3ReasoningParser(self.tokenizer)
         elif model.lower().startswith("meta-llama"):
             self.tool_parser = Llama3JsonToolParser(self.tokenizer)
+            self.reasoning_parser = None
         else:
             self.tool_parser = None
+            self.reasoning_parser = None
 
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
         """
         Invoke the VLLM model with a list of messages and a list of tools.
         """
 
-        # Sampling parameters are set by default
+        # Sampling parameters are set by default, but need max_tokens to be set to generate long descriptions
         sampling_params = vllm.SamplingParams(temperature=0.8, top_p=0.05, max_tokens=1024)
         try:    
             response =self.llm.chat(
@@ -81,14 +85,30 @@ class VLLMClient(LLMClient):
             print(f"An error occurred: {e}")
             return {}
 
-        output = response[0].outputs[0].text.strip()
+        content = response[0].outputs[0].text.strip()
 
-        print(response[0])
+        tool_calls = None
+        reasoning = None
+        if self.reasoning_parser:
+            # request must be passed in, but it is not in use currently, so we pass in None -- this may break in the future
+            reasoning, content = self.reasoning_parser.extract_reasoning_content(content, None)
 
-        tools = None
         if self.tool_parser:
-            tools = self.tool_parser.extract_tool_calls(output, None)
+            # request must be passed in, but it is not in use currently, so we pass in None -- this may break in the future
+            extracted_tools = self.tool_parser.extract_tool_calls(content, None)
+            content = extracted_tools.content
+            tool_calls = [{'function': {'name': tool.function.name, 'arguments': tool.function.arguments}} for tool in extracted_tools.tool_calls]
+        
 
-        raise Exception(f"Tools: {tools}, Output: {output}")
+        response = {
+            'model': self.model,
+            'message': {
+                'role': 'assistant',
+                'content': content,
+                'thinking': reasoning,
+                'tool_calls': tool_calls
+            }
+        }
 
-        return response.model_dump()
+        return response
+    
