@@ -2,11 +2,12 @@ from typing import List, Dict, Any
 from typing import Optional, Tuple
 from core.utils import load_data
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description
-from core.llm_clients import LLMClient, OllamaClient, VLLMClient
+from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIProxyClient
 from tqdm import tqdm
 import json
 import copy
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 class Experiment:
     def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None):
@@ -134,6 +135,7 @@ class Experiment:
                 result['modification'] = modification
                 
             output_file.write(json.dumps(result) + "\n")
+            output_file.flush()
             
         return total_count, total_calls
 
@@ -220,20 +222,39 @@ class Experiment:
     def run_no_attack(self):
         """Run the no-attack mode experiment with simple modification."""
         with open(f"{self.output_path}.jsonl", "w", encoding="utf-8") as output_file:
-            for item in tqdm(self.data, desc="Processing items"):
-                messages = item['question'][0]
-                original_tool = item['function'][0]
-                tools = duplicate_and_rename_tool(original_tool)
+            # for item in tqdm(self.data, desc="Processing items"):
+            #     messages = item['question'][0]
+            #     original_tool = item['function'][0]
+            #     tools = duplicate_and_rename_tool(original_tool)
                 
-                # No-attack mode: simple modification
-                tools[1] = modify_tool_description(tools[1], self.modification)
-                formatted_tools = [format_tool_for_openai_api(tool) for tool in tools]
+            #     # No-attack mode: simple modification
+            #     tools[1] = modify_tool_description(tools[1], self.modification)
+            #     formatted_tools = [format_tool_for_openai_api(tool) for tool in tools]
                 
-                # Run trials with both defense mechanisms
-                self.run_trial_pair(
-                    messages, formatted_tools, self.defense_mechanism, 
-                    tools[1]['name'], output_file, item, self.modification, 0
-                )
+            #     # Run trials with both defense mechanisms
+            #     self.run_trial_pair(
+            #         messages, formatted_tools, self.defense_mechanism, 
+            #         tools[1]['name'], output_file, item, self.modification, 0
+            #     )
+
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = []
+                for item in tqdm(self.data, desc="Queueing items"):
+                    messages = item['question'][0]
+                    original_tool = item['function'][0]
+                    tools = duplicate_and_rename_tool(original_tool)
+                    
+                    # No-attack mode: simple modification
+                    tools[1] = modify_tool_description(tools[1], self.modification)
+                    formatted_tools = [format_tool_for_openai_api(tool) for tool in tools]
+                    futures.append(executor.submit(self.run_trial_pair, messages, formatted_tools, self.defense_mechanism, tools[1]['name'], output_file, item, self.modification, 0))
+
+                # Wait for all futures to complete
+                for future in tqdm(futures, desc="Completing trials"):
+                    future.result() 
+                
+                
+
 
     def run(self):
         if self.attack_mode == "suffix-attack":
@@ -247,7 +268,7 @@ class Experiment:
         
         print(f"Experiment finished. Results saved to {self.output_path}.jsonl and {self.output_path}-improvement_history.jsonl.")
 
-def run_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, engine="ollama"):
+def run_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="ollama"):
     """
     Run an LLM tool selection experiment.
     
@@ -262,15 +283,27 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
         defender_llm_model: Model to use for defender (if different from main model)
         max_attempts: Maximum number of attack attempts
         dataset_size: Number of items to use from the dataset (None for all items)
-        engine: Inference engine to use ('ollama' or 'vllm')
+        client: Inference client to use ('ollama', 'vllm', or 'openai')
     """
     
-        
+    client_class = None
+    if client == "vllm":
+        client_class = VLLMClient
+    elif client == "ollama":
+        client_class = OllamaClient
+    elif client == "openai":
+        client_class = OpenAIProxyClient
+    else:
+        raise ValueError(f"Invalid client: {client}")
 
-    client = VLLMClient if engine == "vllm" else OllamaClient
-    llm_client = client(model_name)
-    attacker_llm_client = client(attacker_llm_model) if attacker_llm_model else llm_client     
-    defender_llm_client = client(defender_llm_model) if defender_llm_model else llm_client
+    llm_client = client_class(model_name)
+    attacker_llm_client = client_class(attacker_llm_model) if attacker_llm_model else llm_client     
+    defender_llm_client = client_class(defender_llm_model) if defender_llm_model else llm_client
+
+    llm_client.wait_for_server_to_start()
+    attacker_llm_client.wait_for_server_to_start()
+    defender_llm_client.wait_for_server_to_start()
+# 
 
     experiment = Experiment(
         llm_client=llm_client,
