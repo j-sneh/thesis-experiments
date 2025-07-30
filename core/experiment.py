@@ -122,7 +122,7 @@ class Experiment:
                 "id": item["id"],
                 "question": item["question"],
                 "original_tool": item["function"][0],
-                "tools_provided": tools,
+                "tools_provided": trial_tools,
                 "called_tool_names": called_tool_names,
                 "trial_type": trial_type,
                 "defense_used": defense,
