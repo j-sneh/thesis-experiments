@@ -21,6 +21,12 @@ class LLMClient(ABC):
         :return: The LLM's response.
         """
         pass
+    
+    def wait_for_server_to_start(self):
+        """
+        Wait for the server to start.
+        """
+        pass
 
 class OllamaClient(LLMClient):
     """LLM client for Ollama."""
@@ -121,13 +127,13 @@ class VLLMClient(LLMClient):
 
         return response
 
-class OpenAIProxyClient(LLMClient):
+class OpenAIClient(LLMClient):
     """LLM client for OpenAI Proxy."""
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, base_url: str = "http://localhost:8000/v1",):
         self.model = model
         self.client = openai.OpenAI(
-            base_url="http://localhost:8000/v1",
+            base_url=base_url,
             api_key="no key needed thus far"
         )
 

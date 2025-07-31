@@ -2,14 +2,14 @@ from typing import List, Dict, Any
 from typing import Optional, Tuple
 from core.utils import load_data
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description
-from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIProxyClient
+from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient
 from tqdm import tqdm
 import json
 import copy
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-class Experiment:
+class HeadToHeadExperiment:
     def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None):
         self.llm_client = llm_client
         self.data = load_data(data_path)
@@ -268,7 +268,7 @@ class Experiment:
         
         print(f"Experiment finished. Results saved to {self.output_path}.jsonl and {self.output_path}-improvement_history.jsonl.")
 
-def run_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="ollama"):
+def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="ollama"):
     """
     Run an LLM tool selection experiment.
     
@@ -292,7 +292,7 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
     elif client == "ollama":
         client_class = OllamaClient
     elif client == "openai":
-        client_class = OpenAIProxyClient
+        client_class = OpenAIClient
     else:
         raise ValueError(f"Invalid client: {client}")
 
@@ -305,7 +305,7 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
     defender_llm_client.wait_for_server_to_start()
 # 
 
-    experiment = Experiment(
+    experiment = HeadToHeadExperiment(
         llm_client=llm_client,
         attacker_llm_client=attacker_llm_client,
         defender_llm_client=defender_llm_client,
@@ -318,4 +318,3 @@ def run_experiment(model_name, data_path, output_path, modification, defense_mec
         dataset_size=dataset_size
     )
     experiment.run()
-
