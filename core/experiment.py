@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 from typing import Optional, Tuple
-from core.utils import load_data
-from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description
+from core.utils import load_data, load_cluster_data
+from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
 from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient
 from tqdm import tqdm
 import json
@@ -10,12 +10,10 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 class HeadToHeadExperiment:
-    def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None):
+    def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None, 
+                 cluster_id: Optional[int] = None, target_tool_index: Optional[int] = None, question_start: Optional[int] = None, question_end: Optional[int] = None, 
+                 attack_modification_type: str = "both"):
         self.llm_client = llm_client
-        self.data = load_data(data_path)
-        # Limit dataset size if specified
-        if dataset_size is not None:
-            self.data = self.data[:dataset_size]
         self.output_path = output_path
         self.modification = modification
         self.defense_mechanism = defense_mechanism
@@ -25,15 +23,28 @@ class HeadToHeadExperiment:
         self.defender_llm_client = defender_llm_client
         self.max_attempts = max_attempts
         self.attacker_prompt_path = None
+        self.attack_modification_type = attack_modification_type  # "description", "name", or "both"
 
-        if attack_mode == "attack":
-            self.attacker_prompt_path = "data/prompts/attacker/robust-to-reword"
-        elif attack_mode == "suffix-attack":
-            self.attacker_prompt_path = "data/prompts/attacker/suffix-robust-to-reword"
-        elif attack_mode == "no-attack":
-            self.attacker_prompt_path = None
+        # Load data based on attack mode
+        if attack_mode == "cluster-attack":
+            if cluster_id is None or target_tool_index is None or question_start is None or question_end is None:
+                raise ValueError("cluster-attack mode requires cluster_id, target_tool_index, question_start, and question_end parameters")
+            self.data = load_cluster_data(data_path, cluster_id, target_tool_index, question_start, question_end)
+            self.attacker_prompt_path = "data/prompts/attacker/cluster-robust-to-reword"
         else:
-            raise ValueError(f"Invalid attack mode: {attack_mode}")
+            self.data = load_data(data_path)
+            # Limit dataset size if specified
+            if dataset_size is not None:
+                self.data = self.data[:dataset_size]
+
+            if attack_mode == "attack":
+                self.attacker_prompt_path = "data/prompts/attacker/robust-to-reword"
+            elif attack_mode == "suffix-attack":
+                self.attacker_prompt_path = "data/prompts/attacker/suffix-robust-to-reword"
+            elif attack_mode == "no-attack":
+                self.attacker_prompt_path = None
+            else:
+                raise ValueError(f"Invalid attack mode: {attack_mode}")
 
     def attack_get_improvement(self, tool: Dict[str, Any], improvement_history: list, attack_mode: str) -> Tuple[str, str]:
         if self.attacker_llm_client is None:
@@ -77,6 +88,89 @@ class HeadToHeadExperiment:
             improvement = ''
 
         return improvement, return_val
+    
+    
+    def cluster_attack_get_improvement_with_feedback(self, tool: Dict[str, Any], improvement_history: list, current_description: str, current_name: str, question_results: list, overall_percent: float, tools_provided: list) -> Tuple[str, str, str]:
+        """
+        Get improvement suggestions for cluster attack mode with detailed feedback.
+        
+        Args:
+            tool: The target tool
+            improvement_history: History of previous attempts
+            current_description: Current tool description
+            current_name: Current tool name
+            question_results: Results from each question in this attempt
+            overall_percent: Overall selection percentage
+            tools_provided: Tools that were provided to the LLM
+            
+        Returns:
+            Tuple of (improvement, new_description, new_name)
+        """
+        if self.attacker_llm_client is None:
+            raise RuntimeError("attacker_llm_client is None in cluster_attack_mode. This should not happen.")
+        
+        with open(self.attacker_prompt_path, 'r', encoding="utf-8") as file:
+            prompt = file.read()
+        
+        messages = [
+            {"role": "system", "content": prompt},
+        ]
+        
+        # Add current tool information
+        tool_info = f"Current tool name: {current_name}\nCurrent tool description: {current_description}"
+        messages.append({"role": "user", "content": tool_info})
+        
+        # Add improvement_history of previous attempts
+        for prev in improvement_history:
+            prev_content = {
+                'improvement': prev['improvement'],
+                'description': prev['description'],
+                'name': prev['name']
+            }
+            messages.append({"role": "assistant", "content": json.dumps(prev_content)})
+            messages.append({"role": "user", "content": f"FEEDBACK: This modification was selected {prev['percent']}% of the time."})
+        
+        # Add detailed feedback from current attempt
+        feedback_info = f"OVERALL FEEDBACK: Your current modification was selected {overall_percent:.2f}% of the time.\n\n"
+        feedback_info += f"Tools provided to the LLM:\n"
+        for i, tool in enumerate(tools_provided):
+            tool_name = tool['function']['name']
+            tool_desc = tool['function'].get('description', 'No description')
+            feedback_info += f"{tool_name} - {tool_desc} - {tool['function']['parameters']}\n"
+        
+        feedback_info += f"\nDetailed results by question:\n"
+        for result in question_results:
+            question_text = result['question'][0]['content']
+            selected = True if result['target_tool_selected'] else False
+            called_tools = ", ".join(result['called_tool_names']) if result['called_tool_names'] else "None"
+            feedback_info += f"Q{result['question_index']+1}: {selected} | Called: {called_tools} | Question: {question_text}\n"
+        
+        messages.append({"role": "user", "content": feedback_info})
+        
+        response = self.attacker_llm_client.invoke(messages, None)
+        improvement = ''
+        new_description = None
+        new_name = None
+        
+        try:
+            attacker_json = json.loads(response['message']['content'])
+            improvement = attacker_json.get('improvement', '')
+            
+            # Handle modification type restrictions
+            if self.attack_modification_type in ["description", "both"]:
+                new_description = attacker_json.get('description')
+            if self.attack_modification_type in ["name", "both"]:
+                new_name = attacker_json.get('name')
+                
+        except KeyError as e:
+            raise TypeError(f"[Attacker LLM] Invalid JSON format: {e}\nRaw output: {response}")
+        except Exception as e:
+            print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response['message']['content']}")
+            improvement = ''
+            new_description = None
+            new_name = None
+        
+        return improvement, new_description, new_name
     
     def apply_defense_to_tools(self, tools, defense, llm_client):
         defended_tools = [copy.deepcopy(tool) for tool in tools]
@@ -252,7 +346,24 @@ class HeadToHeadExperiment:
                 # Wait for all futures to complete
                 for future in tqdm(futures, desc="Completing trials"):
                     future.result() 
+        
+        """
+        For the cluster experiment, we need to pick a cluster in the data (1-5)
+        Then, we need to pick a tool from the cluster, which is the tool we will be attacking.
+        We will also need to pick a range of questions (prompts) associated with the cluster.
+        
+        We will run for n attempts, where each attempt is a revised tool description. The information the attacker will have is the following:
+        - The current tool description
+        - Which tool was selected in the previous attempt
+        - Which tools were provided to the LLM in the previous attempt
+
+        The revision will be either a new tool description, or a new name, or both.
+        """
+
+
+
                 
+    
                 
 
 
@@ -263,12 +374,127 @@ class HeadToHeadExperiment:
             self.run_attack()
         elif self.attack_mode == "no-attack":
             self.run_no_attack()
+        elif self.attack_mode == "cluster-attack":
+            self.run_cluster_attack()
         else:
             raise ValueError(f"Invalid attack mode: {self.attack_mode}")
         
         print(f"Experiment finished. Results saved to {self.output_path}.jsonl and {self.output_path}-improvement_history.jsonl.")
 
-def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="ollama"):
+    def run_cluster_attack(self):
+        """Run the cluster-attack mode experiment with iterative improvement."""
+        with open(f"{self.output_path}.jsonl", "w", encoding="utf-8") as output_file, open(f"{self.output_path}-improvement_history.jsonl", "w", encoding="utf-8") as improvement_history_file:
+            # Get the target tool and all tools from the cluster
+            target_tool = self.data['target_tool']
+            all_tools = self.data['all_tools']
+            
+            improvement_history = []
+            current_description = target_tool.get('description', '')
+            current_name = target_tool['name']
+            
+            for attempt in range(self.max_attempts):
+                # Create modified tools list with the updated target tool
+                all_tools[self.data['target_tool_index']] = modify_tool_for_cluster_attack(all_tools[self.data['target_tool_index']], current_description, current_name)
+                
+                # Format tools for OpenAI API
+                formatted_tools = [format_tool_for_openai_api(t) for t in all_tools]
+                
+                # Apply defense if needed
+                defended_tools = self.apply_defense_to_tools(formatted_tools, self.defense_mechanism, self.defender_llm_client)
+                
+                # Run trials on all questions in the cluster
+                total_count = 0
+                total_calls = 0
+                question_results = []  # Store results for each question
+                
+                for i, question in enumerate(tqdm(self.data['questions'], desc=f"Cluster Attack Attempt {attempt+1}")):
+                    messages = question
+                    
+                    # Run the trial with all tools
+                    response = self.llm_client.invoke(messages, defended_tools)
+                    
+                    # Extract called tool names
+                    tool_calls = []
+                    called_tool_names = []
+                    if response and 'message' in response and response['message'].get('tool_calls'):
+                        tool_calls = response['message']['tool_calls']
+                        called_tool_names = [r['function']['name'] for r in tool_calls]
+                    
+                    # Count selections of our target tool
+                    # We only look at the first tool call, as we assume the LLM will only call one tool
+                    # TODO: Handle the case where the LLM calls multiple tools
+                    target_selected = False if tool_calls is None else called_tool_names[0] == current_name
+                    total_count += target_selected
+                    total_calls += 1
+                    
+                    # Store question result
+                    question_result = {
+                        'question': messages,
+                        # TODO: deal with defense, too -- may need to give limited information or all information
+                        'tools': formatted_tools, 
+                        'called_tool_names': called_tool_names,
+                        'target_tool_selected': target_selected,
+                        'target_tool_name': current_name
+                    }
+                    question_results.append(question_result)
+                    
+                    # Create result record for output file
+                    result = {
+                        "id": f"cluster-{self.data['cluster_id']}-q{i}",
+                        "question": messages,
+                        "tools_provided": defended_tools,
+                        "called_tool_names": called_tool_names,
+                        "target_tool_name": current_name,
+                        "target_tool_selected": True,
+                        "defense_used": self.defense_mechanism,
+                        "attack_mode": self.attack_mode,
+                        "attempt": attempt,
+                        "cluster_id": self.data['cluster_id'],
+                        "target_tool_index": self.data['target_tool_index']
+                    }
+                    
+                    output_file.write(json.dumps(result) + "\n")
+                    output_file.flush()
+                
+                # Calculate overall percentage
+                percent = 100.0 * total_count / total_calls if total_calls > 0 else 0.0
+                
+                
+                # Save improvement history
+                improvement_record = {
+                    'attempt': attempt,
+                    'improvement': improvement,
+                    'description': current_description,
+                    'name': current_name,
+                    'percent': percent,
+                    'cluster_id': self.data['cluster_id'],
+                    'target_tool_index': self.data['target_tool_index'],
+                    'total_questions': len(self.data['questions']),
+                    'total_selections': total_count,
+                    'total_calls': total_calls
+                }
+                improvement_history.append(improvement_record)
+                improvement_history_file.write(json.dumps(improvement_record) + "\n")
+                improvement_history_file.flush()
+
+                # Get improvement from attacker with detailed feedback
+                improvement, new_description, new_name = self.cluster_attack_get_improvement_with_feedback(
+                    all_tools[self.data['target_tool_index']], improvement_history, current_description, current_name, 
+                    question_results, percent, defended_tools
+                )
+                
+                # Update the target tool with new description/name
+                if new_description is not None:
+                    current_description = new_description
+                if new_name is not None:
+                    current_name = new_name
+                
+                
+                print(f"Attempt {attempt+1}: {percent:.2f}% selection rate ({total_count}/{total_calls} selections)")
+
+        
+def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
+                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both"):
     """
     Run an LLM tool selection experiment.
     
@@ -278,12 +504,17 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         output_path: Path where results will be saved
         modification: Type of modification to apply to tool descriptions
         defense_mechanism: Defense mechanism to apply
-        attacker_mode: Attack mode string: 'attack', 'suffix-attack', or 'no-attack'
+        attacker_mode: Attack mode string: 'attack', 'suffix-attack', 'cluster-attack', or 'no-attack'
         attacker_llm_model: Model to use for attacker (if different from main model)
         defender_llm_model: Model to use for defender (if different from main model)
         max_attempts: Maximum number of attack attempts
         dataset_size: Number of items to use from the dataset (None for all items)
         client: Inference client to use ('ollama', 'vllm', or 'openai')
+        cluster_id: Cluster ID for cluster-attack mode (1-10)
+        target_tool_index: Target tool index for cluster-attack mode (0-4)
+        question_start: Start index for questions in cluster-attack mode
+        question_end: End index for questions in cluster-attack mode
+        attack_modification_type: Type of modification for cluster-attack mode ('description', 'name', or 'both')
     """
     
     client_class = None
@@ -315,6 +546,11 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         defense_mechanism=defense_mechanism,
         attack_mode=attacker_mode,
         max_attempts=max_attempts,
-        dataset_size=dataset_size
+        dataset_size=dataset_size,
+        cluster_id=cluster_id,
+        target_tool_index=target_tool_index,
+        question_start=question_start,
+        question_end=question_end,
+        attack_modification_type=attack_modification_type
     )
     experiment.run()

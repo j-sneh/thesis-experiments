@@ -1,6 +1,7 @@
 from typing import Dict, Any, List
 import copy
 from core.llm_clients import LLMClient
+
 def duplicate_and_rename_tool(tool: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Duplicates a tool and renames the copies to tool1 and tool2."""
     tool1 = copy.deepcopy(tool)
@@ -11,6 +12,21 @@ def duplicate_and_rename_tool(tool: Dict[str, Any]) -> List[Dict[str, Any]]:
     tool2['name'] = f"{original_name}2"
     
     return [tool1, tool2]
+
+def modify_tool_name(tool: Dict[str, Any], new_name: str) -> Dict[str, Any]:
+    """
+    Modifies the name of a tool.
+    
+    Args:
+        tool: The tool to modify
+        new_name: The new name for the tool
+        
+    Returns:
+        Modified tool with new name
+    """
+    modified_tool = copy.deepcopy(tool)
+    modified_tool['name'] = new_name
+    return modified_tool
 
 def modify_tool_description(tool: Dict[str, Any], modification: str) -> Dict[str, Any]:
     """
@@ -29,6 +45,28 @@ def modify_tool_description(tool: Dict[str, Any], modification: str) -> Dict[str
     else:
         raise ValueError(f"Unknown modification: {modification}")
         
+    return modified_tool
+
+def modify_tool_for_cluster_attack(tool: Dict[str, Any], new_description: str = None, new_name: str = None) -> Dict[str, Any]:
+    """
+    Modifies a tool for cluster attack by updating description and/or name.
+    
+    Args:
+        tool: The tool to modify
+        new_description: New description (None to keep original)
+        new_name: New name (None to keep original)
+        
+    Returns:
+        Modified tool
+    """
+    modified_tool = copy.deepcopy(tool)
+    
+    if new_description is not None:
+        modified_tool['description'] = new_description
+    
+    if new_name is not None:
+        modified_tool['name'] = new_name
+    
     return modified_tool
 
 def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client: LLMClient) -> str:
