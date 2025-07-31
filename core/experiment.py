@@ -143,7 +143,7 @@ class HeadToHeadExperiment:
             question_text = result['question'][0]['content']
             selected = True if result['target_tool_selected'] else False
             called_tools = ", ".join(result['called_tool_names']) if result['called_tool_names'] else "None"
-            feedback_info += f"Q{result['question_index']+1}: {selected} | Called: {called_tools} | Question: {question_text}\n"
+            feedback_info += f"Question: {question_text}\nTarget Tool Selected First: {selected} | Called Tools: {called_tools}\n"
         
         messages.append({"role": "user", "content": feedback_info})
         
@@ -385,16 +385,17 @@ class HeadToHeadExperiment:
         """Run the cluster-attack mode experiment with iterative improvement."""
         with open(f"{self.output_path}.jsonl", "w", encoding="utf-8") as output_file, open(f"{self.output_path}-improvement_history.jsonl", "w", encoding="utf-8") as improvement_history_file:
             # Get the target tool and all tools from the cluster
-            target_tool = self.data['target_tool']
             all_tools = self.data['all_tools']
             
+            target_tool_index = self.data['target_tool_index']
             improvement_history = []
-            current_description = target_tool.get('description', '')
-            current_name = target_tool['name']
+            improvement = 'This is the original tool'
+            current_description = all_tools[target_tool_index].get('description', '')
+            current_name = all_tools[target_tool_index]['name']
             
             for attempt in range(self.max_attempts):
                 # Create modified tools list with the updated target tool
-                all_tools[self.data['target_tool_index']] = modify_tool_for_cluster_attack(all_tools[self.data['target_tool_index']], current_description, current_name)
+                all_tools[target_tool_index] = modify_tool_for_cluster_attack(all_tools[target_tool_index], current_description, current_name)
                 
                 # Format tools for OpenAI API
                 formatted_tools = [format_tool_for_openai_api(t) for t in all_tools]
@@ -445,12 +446,12 @@ class HeadToHeadExperiment:
                         "tools_provided": defended_tools,
                         "called_tool_names": called_tool_names,
                         "target_tool_name": current_name,
-                        "target_tool_selected": True,
+                        "target_tool_selected": target_selected,
                         "defense_used": self.defense_mechanism,
                         "attack_mode": self.attack_mode,
                         "attempt": attempt,
                         "cluster_id": self.data['cluster_id'],
-                        "target_tool_index": self.data['target_tool_index']
+                        "target_tool_index": target_tool_index
                     }
                     
                     output_file.write(json.dumps(result) + "\n")
@@ -468,7 +469,7 @@ class HeadToHeadExperiment:
                     'name': current_name,
                     'percent': percent,
                     'cluster_id': self.data['cluster_id'],
-                    'target_tool_index': self.data['target_tool_index'],
+                    'target_tool_index': target_tool_index,
                     'total_questions': len(self.data['questions']),
                     'total_selections': total_count,
                     'total_calls': total_calls
@@ -479,7 +480,7 @@ class HeadToHeadExperiment:
 
                 # Get improvement from attacker with detailed feedback
                 improvement, new_description, new_name = self.cluster_attack_get_improvement_with_feedback(
-                    all_tools[self.data['target_tool_index']], improvement_history, current_description, current_name, 
+                    all_tools[target_tool_index], improvement_history, current_description, current_name, 
                     question_results, percent, defended_tools
                 )
                 

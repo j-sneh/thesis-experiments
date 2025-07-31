@@ -83,6 +83,7 @@ def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client
     """
     assert 'function' in tool, "Tool must be in the format of the OpenAI API."
     modified_tool = copy.deepcopy(tool)
+
     if defense_type == "noop" or defense_type == "none":
         pass
     elif defense_type == "reword":
@@ -92,7 +93,7 @@ def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client
     else:
         raise ValueError(f"Unknown defense type: {defense_type}")
     
-    return modified_tool['function']['description']
+    return modified_tool['function'].get('description', '')
 
 def llm_defense_mechanism(description: str, prompt_path: str, llm_client: LLMClient) -> str:
     """
