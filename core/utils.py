@@ -65,49 +65,65 @@ def save_results(file_path: str, results: List[Dict[str, Any]]):
         for result in results:
             f.write(json.dumps(result) + "\n")
 
-def spawn_server(model_name: str, port: int = 8000) -> Tuple[str, subprocess.Popen, io.TextIOWrapper]:
+def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama") -> Tuple[str, subprocess.Popen, io.TextIOWrapper]:
     """Spawn a server for a given model.
     Returns the process (to kill it later)
     and the url of the server"""
-    # TODO: more than just vllm server
 
-    print(f"Spawning server for {model_name} on port {port}")
-    
-    # Create log file path if not provided
-    log_file = f"vllm_server_{model_name.replace('/', '_')}_{port}.log"
+    print(f"Spawning {server_type} server on port {port}")
+    # Create log file path
+    log_file = f"{server_type}_server_{port}.log"
     print(f"Logging server output to: {log_file}")
     
-    # Create a new process that will run in the background
-    commands = [
-        "vllm",
-        "serve",
-        model_name,
-        "--port",
-        str(port),
-        "--enable-auto-tool-choice"
-    ]
-
-    if model_name.startswith("Qwen/Qwen3") or model_name.startswith("NousResearch/Hermes"):
-        commands.extend(['--tool-call-parser', 'hermes'])
-        commands.extend(['--reasoning-parser', 'deepseek_r1'])
-    elif model_name.startswith("microsoft/Phi-4"):
-        commands.extend([
-            "--tool-call-parser",
-            "phi4_mini_json",
-            "--trust-remote-code"
-            "--chat-template",
-            "templates/phi4-template.jinja"
-        ])
-    elif model_name.startswith("meta-llama/Llama-3.2"):
-        commands.extend([
-            "--tool-call-parser",
-            "pythonic"
-        ])
-    else:
-        raise ValueError(f"Unsupported model: {model_name}")
-
     # Open log file and redirect both stdout and stderr to it
     log_handle = open(log_file, 'w')
-    process = subprocess.Popen(commands, env=(os.environ | {}), stdout=log_handle, stderr=log_handle)
+    env = os.environ
+    base_url = f"http://localhost:{port}/v1"
+    
+    if server_type == "vllm":
+        commands = [
+            "vllm",
+            "serve",
+            model_name,
+            "--port",
+            str(port),
+            "--enable-auto-tool-choice"
+        ]
 
-    return f"http://localhost:{port}", process, log_handle
+        if model_name.startswith("Qwen/Qwen3") or model_name.startswith("NousResearch/Hermes"):
+            commands.extend(['--tool-call-parser', 'hermes'])
+            commands.extend(['--reasoning-parser', 'deepseek_r1'])
+        elif model_name.startswith("microsoft/Phi-4"):
+            commands.extend([
+                "--tool-call-parser",
+                "phi4_mini_json",
+                "--trust-remote-code"
+                "--chat-template",
+                "templates/phi4-template.jinja"
+            ])
+        elif model_name.startswith("meta-llama/Llama-3.2"):
+            commands.extend([
+                "--tool-call-parser",
+                "pythonic"
+            ])
+        else:
+            raise ValueError(f"Unsupported model for vllm: {model_name}")
+            
+    else:  # ollama
+        # TODO: temporary fix to run outside
+
+        
+        # Set OLLAMA_HOST for the client
+        # env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
+        env["OLLAMA_DEBUG"] = "2"
+
+        #TODO: customize port for ollama
+        base_url = f"http://127.0.0.1:11434/v1"
+
+        commands = [
+            "ollama",
+            "serve"
+        ]
+
+    process = subprocess.Popen(commands, env=env, stdout=log_handle, stderr=log_handle)
+    return base_url, process, log_handle

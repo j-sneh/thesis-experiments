@@ -6,6 +6,8 @@ import vllm
 import openai
 from vllm.entrypoints.openai.tool_parsers import Hermes2ProToolParser, Llama3JsonToolParser
 from vllm.reasoning import Qwen3ReasoningParser
+import requests
+import os
 
 # TODO: standardise tool call response format so it matches OpenAI's format
 class LLMClient(ABC):
@@ -134,8 +136,9 @@ class OpenAIClient(LLMClient):
 
     def __init__(self, model: str, base_url: str = "http://localhost:8000/v1",):
         self.model = model
+        self.base_url = base_url
         self.client = openai.OpenAI(
-            base_url=base_url,
+            base_url=self.base_url,
             api_key="no key needed thus far"
         )
 
@@ -148,8 +151,9 @@ class OpenAIClient(LLMClient):
                 model=self.model,
                 messages=messages,
                 tools=tools,
-            ).model_dump()['choices'][0]
-            return response
+            ).model_dump()
+            print(response)
+            return response['choices'][0]
         except Exception as e:
             print(f"An error occurred: {e}")
     
@@ -158,13 +162,15 @@ class OpenAIClient(LLMClient):
         Wait for the server to start.
         """
         start_time = time.time()
+        print(f"Waiting for server to start... {self.base_url}")
         while True:
             try:
                 # some random API call to check if the server is up
                 self.client.models.list() 
                 break
             except Exception as e:
+                if "Connection error." not in str(e):
+                    raise
                 time.sleep(0.5)
-                print(f"Waiting for server to start... {e}")
                 if time.time() - start_time > timeout:
                     raise TimeoutError(f"Server did not start within {timeout} seconds")

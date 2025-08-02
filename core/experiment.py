@@ -8,6 +8,22 @@ import json
 import copy
 import os
 from concurrent.futures import ThreadPoolExecutor
+import threading
+import subprocess
+import time
+
+class ThreadSafeCounter:
+    def __init__(self):
+        self._value = 0
+        self._lock = threading.Lock()
+    
+    def increment(self):
+        with self._lock:
+            self._value += 1
+    
+    @property
+    def value(self):
+        return self._value
 
 class HeadToHeadExperiment:
     def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None, 
@@ -24,6 +40,9 @@ class HeadToHeadExperiment:
         self.max_attempts = max_attempts
         self.attacker_prompt_path = None
         self.attack_modification_type = attack_modification_type  # "description", "name", or "both"
+
+        self.question_start = question_start
+        self.question_end = question_end
 
         # Load data based on attack mode
         if attack_mode == "cluster-attack":
@@ -403,12 +422,14 @@ class HeadToHeadExperiment:
                 # Apply defense if needed
                 defended_tools = self.apply_defense_to_tools(formatted_tools, self.defense_mechanism, self.defender_llm_client)
                 
-                # Run trials on all questions in the cluster
-                total_count = 0
-                total_calls = 0
-                question_results = []  # Store results for each question
-                
-                for i, question in enumerate(tqdm(self.data['questions'], desc=f"Cluster Attack Attempt {attempt+1}")):
+                # Initialize thread-safe counters and shared data structures
+                selection_counter = ThreadSafeCounter()
+                calls_counter = ThreadSafeCounter()
+                question_results = []
+                results_lock = threading.Lock()
+                file_lock = threading.Lock()
+
+                def run_trial(question, idx):
                     messages = question
                     
                     # Run the trial with all tools
@@ -425,10 +446,13 @@ class HeadToHeadExperiment:
                     # We only look at the first tool call, as we assume the LLM will only call one tool
                     # TODO: Handle the case where the LLM calls multiple tools
                     target_selected = False if tool_calls is None else called_tool_names[0] == current_name
-                    total_count += target_selected
-                    total_calls += 1
                     
-                    # Store question result
+                    # Update counters
+                    if target_selected:
+                        selection_counter.increment()
+                    calls_counter.increment()
+                    
+                    # Store question result (thread-safe)
                     question_result = {
                         'question': messages,
                         # TODO: deal with defense, too -- may need to give limited information or all information
@@ -437,11 +461,12 @@ class HeadToHeadExperiment:
                         'target_tool_selected': target_selected,
                         'target_tool_name': current_name
                     }
-                    question_results.append(question_result)
+                    with results_lock:
+                        question_results.append(question_result)
                     
                     # Create result record for output file
                     result = {
-                        "id": f"cluster-{self.data['cluster_id']}-q{i}",
+                        "id": f"cluster-{self.data['cluster_id']}-q{self.question_start + idx}",
                         "question": messages,
                         "tools_provided": defended_tools,
                         "called_tool_names": called_tool_names,
@@ -454,9 +479,23 @@ class HeadToHeadExperiment:
                         "target_tool_index": target_tool_index
                     }
                     
-                    output_file.write(json.dumps(result) + "\n")
-                    output_file.flush()
+                    # Thread-safe file writing
+                    with file_lock:
+                        output_file.write(json.dumps(result) + "\n")
+                        output_file.flush()
+                    
+                # Parallelize the question processing
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    list(tqdm(executor.map(lambda args: run_trial(args[1], args[0]), enumerate(self.data['questions'])), 
+                             total=len(self.data['questions']), 
+                             desc=f"Cluster Attack Attempt {attempt+1}"))
                 
+                # Get final counts after all threads complete
+                total_count = selection_counter.value
+                total_calls = calls_counter.value
+                    
+                
+                output_file.flush()
                 # Calculate overall percentage
                 percent = 100.0 * total_count / total_calls if total_calls > 0 else 0.0
                 
@@ -495,7 +534,7 @@ class HeadToHeadExperiment:
 
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
-                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both"):
+                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="ollama"):
     """
     Run an LLM tool selection experiment.
     
@@ -531,12 +570,22 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
     
     # Start the servers for the LLMs
     models = set([model_name, attacker_llm_model, defender_llm_model])
+    
     model_processes = {}
-    port = 8000
-    for model in models:
-        url, process, log_handle = spawn_server(model, port)
-        port += 1
-        model_processes[model] = (url, process, log_handle)
+    if server_type == "ollama":
+        # Need to download the models if they are not already present
+        
+        # Ollama can handle multiple models on one server
+        url, process, log_handle = spawn_server(None, server_port, server_type)
+        for model in models:
+            model_processes[model] = (url, process, log_handle)
+    else:  # vllm
+        # vllm needs separate server for each model
+        port = server_port
+        for model in models:
+            url, process, log_handle = spawn_server(model, port, server_type)
+            port += 1
+            model_processes[model] = (url, process, log_handle)
 
 
     try:
@@ -548,6 +597,11 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         llm_client.wait_for_server_to_start()
         attacker_llm_client.wait_for_server_to_start()
         defender_llm_client.wait_for_server_to_start()
+
+        if server_type == "ollama":
+            # Ollama needs to pull the models before the client connects
+            for model in models:
+                subprocess.run(["ollama", "pull", model], env=os.environ, check=True)
     # 
 
         experiment = HeadToHeadExperiment(
