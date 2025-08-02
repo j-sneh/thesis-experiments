@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 from typing import Optional, Tuple
-from core.utils import load_data, load_cluster_data
+from core.utils import load_data, load_cluster_data, spawn_server
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
 from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient
 from tqdm import tqdm
@@ -528,30 +528,48 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
     else:
         raise ValueError(f"Invalid client: {client}")
 
-    llm_client = client_class(model_name)
-    attacker_llm_client = client_class(attacker_llm_model) if attacker_llm_model else llm_client     
-    defender_llm_client = client_class(defender_llm_model) if defender_llm_model else llm_client
+    
+    # Start the servers for the LLMs
+    models = set([model_name, attacker_llm_model, defender_llm_model])
+    model_processes = {}
+    port = 8000
+    for model in models:
+        url, process, log_handle = spawn_server(model, port)
+        port += 1
+        model_processes[model] = (url, process, log_handle)
 
-    llm_client.wait_for_server_to_start()
-    attacker_llm_client.wait_for_server_to_start()
-    defender_llm_client.wait_for_server_to_start()
-# 
 
-    experiment = HeadToHeadExperiment(
-        llm_client=llm_client,
-        attacker_llm_client=attacker_llm_client,
-        defender_llm_client=defender_llm_client,
-        data_path=data_path,
-        output_path=output_path,
-        modification=modification,
-        defense_mechanism=defense_mechanism,
-        attack_mode=attacker_mode,
-        max_attempts=max_attempts,
-        dataset_size=dataset_size,
-        cluster_id=cluster_id,
-        target_tool_index=target_tool_index,
-        question_start=question_start,
-        question_end=question_end,
-        attack_modification_type=attack_modification_type
-    )
-    experiment.run()
+    try:
+        llm_client = client_class(model_name, base_url=model_processes[model_name][0])
+        attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
+        defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client
+
+
+        llm_client.wait_for_server_to_start()
+        attacker_llm_client.wait_for_server_to_start()
+        defender_llm_client.wait_for_server_to_start()
+    # 
+
+        experiment = HeadToHeadExperiment(
+            llm_client=llm_client,
+            attacker_llm_client=attacker_llm_client,
+            defender_llm_client=defender_llm_client,
+            data_path=data_path,
+            output_path=output_path,
+            modification=modification,
+            defense_mechanism=defense_mechanism,
+            attack_mode=attacker_mode,
+            max_attempts=max_attempts,
+            dataset_size=dataset_size,
+            cluster_id=cluster_id,
+            target_tool_index=target_tool_index,
+            question_start=question_start,
+            question_end=question_end,
+            attack_modification_type=attack_modification_type
+        )
+        experiment.run()
+    finally:
+        for process in model_processes.values():
+            # Kill the server before exiting
+            process[1].terminate()
+            process[2].close()

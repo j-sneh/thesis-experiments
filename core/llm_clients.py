@@ -31,9 +31,10 @@ class LLMClient(ABC):
 class OllamaClient(LLMClient):
     """LLM client for Ollama."""
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, base_url: str = "http://localhost:11434"):
         self.model = model
-        self.client = ollama.Client()
+        self.base_url = base_url
+        self.client = ollama.Client(host=base_url)
 
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
         """
@@ -53,8 +54,9 @@ class OllamaClient(LLMClient):
 class VLLMClient(LLMClient):
     """LLM client for VLLM."""
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, base_url: str = None):
         self.model = model
+        self.base_url = base_url
         # float16 for quantization purposes
         # TODO: look at https://github.com/vllm-project/llm-compressor for quantization
 
@@ -151,10 +153,11 @@ class OpenAIClient(LLMClient):
         except Exception as e:
             print(f"An error occurred: {e}")
     
-    def wait_for_server_to_start(self):
+    def wait_for_server_to_start(self, timeout: int = 300):
         """
         Wait for the server to start.
         """
+        start_time = time.time()
         while True:
             try:
                 # some random API call to check if the server is up
@@ -163,3 +166,5 @@ class OpenAIClient(LLMClient):
             except Exception as e:
                 time.sleep(0.5)
                 print(f"Waiting for server to start... {e}")
+                if time.time() - start_time > timeout:
+                    raise TimeoutError(f"Server did not start within {timeout} seconds")
