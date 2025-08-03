@@ -157,8 +157,27 @@ class HeadToHeadExperiment:
             tool_desc = tool['function'].get('description', 'No description')
             feedback_info += f"{tool_name} - {tool_desc} - {tool['function']['parameters']}\n"
         
-        feedback_info += f"\nDetailed results by question:\n"
-        for result in question_results:
+        feedback_info += f"Here are a sample of the questions asked and the tools that were subsequently called:\n"
+        # Select up to 5 successful and up to 5 unsuccessful trials, or 10 in total
+        selected_results = []
+        if len(question_results) < 10:
+            selected_results = question_results
+        else:
+            successful = []
+            unsuccessful = []
+            for result in question_results:
+                if result['target_tool_selected']:
+                    successful.append(result)
+                else:
+                    unsuccessful.append(result)
+            # Take up to 5 from each, but if not enough, fill from the other
+            selected_results = successful[:5] + unsuccessful[:5]
+            if len(selected_results) < 10:
+                # Fill up to 10 with remaining from either list
+                remaining = (successful[5:] + unsuccessful[5:])[:10 - len(selected_results)]
+                selected_results += remaining
+
+        for result in selected_results:
             question_text = result['question'][0]['content']
             selected = True if result['target_tool_selected'] else False
             called_tools = ", ".join(result['called_tool_names']) if result['called_tool_names'] else "None"
@@ -172,7 +191,17 @@ class HeadToHeadExperiment:
         new_name = None
         
         try:
-            attacker_json = json.loads(response['message']['content'])
+            content = response['message']['content']
+            # remove content between <think> and </think> if it exists
+            # todo: customize parsing for different models
+            if '<think>' in content and '</think>' in content:
+                import re
+                match = re.search(r'<think>.*?</think>(.*)', content, flags=re.DOTALL)
+
+                if match:
+                    content = match.group(1).strip()
+
+            attacker_json = json.loads(content)
             improvement = attacker_json.get('improvement', '')
             
             # Handle modification type restrictions

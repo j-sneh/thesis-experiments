@@ -66,3 +66,7 @@ uv run main.py --engine vllm --model qwen2.5
 ```
 
 
+Running this command:
+```
+CUDA_VISIBLE_DEVICES=6,7 python main.py --attack-mode cluster-attack --model qwen3:8b --data-path data/clusters/bias_dataset_bfcl_format.jsonl --question-start 0 --question-end 100 --attack-modification both --cluster-id 1 --target-tool-index 1 --defense-mechanism none --max-attempts 10 --output-path one-index-qwen-ollama --server-type ollama
+```
