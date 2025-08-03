@@ -72,7 +72,8 @@ def main():
         question_start=args.question_start,
         question_end=args.question_end,
         attack_modification_type=args.attack_modification_type,
-        server_port=args.server_port
+        server_port=args.server_port,
+        server_type=args.server_type
     )
 
 if __name__ == "__main__":
