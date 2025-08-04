@@ -605,14 +605,14 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         # Need to download the models if they are not already present
         
         # Ollama can handle multiple models on one server
-        url, process, log_handle = spawn_server(None, server_port, server_type)
+        url, process, log_handle = spawn_server(None, server_port, server_type, output_path)
         for model in models:
             model_processes[model] = (url, process, log_handle)
     else:  # vllm
         # vllm needs separate server for each model
         port = server_port
         for model in models:
-            url, process, log_handle = spawn_server(model, port, server_type)
+            url, process, log_handle = spawn_server(model, port, server_type, output_path)
             port += 1
             model_processes[model] = (url, process, log_handle)
 
