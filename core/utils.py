@@ -110,7 +110,6 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama")
             raise ValueError(f"Unsupported model for vllm: {model_name}")
             
     else:  # ollama
-        # TODO: temporary fix to run outside
 
         
         # Set OLLAMA_HOST for the client
