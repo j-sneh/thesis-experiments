@@ -116,6 +116,7 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama")
         # Set OLLAMA_HOST for the client
         # env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
         env["OLLAMA_DEBUG"] = "2"
+        env["OLLAMA_NUM_PARALLEL"] = "4"
 
         #TODO: customize port for ollama
         base_url = f"http://127.0.0.1:11434/v1"
