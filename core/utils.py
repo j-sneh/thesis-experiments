@@ -65,18 +65,30 @@ def save_results(file_path: str, results: List[Dict[str, Any]]):
         for result in results:
             f.write(json.dumps(result) + "\n")
 
-def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama") -> Tuple[str, subprocess.Popen, io.TextIOWrapper]:
+def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama", output_file_path: str = None) -> Tuple[str, subprocess.Popen, io.TextIOWrapper]:
     """Spawn a server for a given model.
-    Returns the process (to kill it later)
-    and the url of the server"""
+    
+    Args:
+        model_name: Name of the model to serve
+        port: Port number to serve on
+        server_type: Type of server ("ollama" or "vllm")
+        output_file_path: Path to the output file, used to create unique log file names
+        
+    Returns:
+        Tuple containing:
+        - The base URL of the server
+        - The server process (to kill it later)
+        - The log file handle
+    """
 
     print(f"Spawning {server_type} server on port {port}")
-    # Create log file path
-    log_file = f"{server_type}_server_{port}.log"
+    # Create log file path with output identifier
+    output_identifier = os.path.splitext(os.path.basename(output_file_path))[0] if output_file_path else "default"
+    log_file = f"{server_type}_server_{port}_{output_identifier}.log"
     print(f"Logging server output to: {log_file}")
     
     # Open log file and redirect both stdout and stderr to it
-    log_handle = open(log_file, 'w')
+    log_handle = open(log_file, 'w', encoding="utf-8")
     env = os.environ
     base_url = f"http://localhost:{port}/v1"
     
@@ -119,7 +131,7 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama")
         env["OLLAMA_NUM_PARALLEL"] = "4"
 
         #TODO: customize port for ollama
-        base_url = f"http://127.0.0.1:11434/v1"
+        base_url = "http://127.0.0.1:11434/v1"
 
         commands = [
             "ollama",

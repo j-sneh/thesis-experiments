@@ -2,65 +2,118 @@
 import subprocess
 import sys
 import os
+import argparse
+from pathlib import Path
+import re
 
-def run_experiment(model_name, n_runs=5):
-    """
-    Run the experiment n times with different output files for a specific model.
+def translate_model_name(model_name: str, server_type: str) -> str:
+    """Translate model names between HuggingFace and Ollama formats using regex."""
     
-    Args:
-        model_name (str): Name of the model to run experiments for
-        n_runs (int): Number of times to run the experiment
-    """
+    if server_type == "ollama":
+        # Handle Qwen models (e.g., Qwen/Qwen3-8B -> qwen3:8b)
+        qwen_match = re.match(r'Qwen/Qwen(\d+)-(\d+)B', model_name)
+        if qwen_match:
+            version, size = qwen_match.groups()
+            return f"qwen{version}:{size}b"
+            
+        # Handle Llama models (e.g., meta-llama/Llama-2-7B-Instruct -> llama2:7b)
+        llama_match = re.match(r'meta-llama/Llama-(\d+(?:\.\d+)?)-(\d+)B(?:-Instruct)?', model_name)
+        if llama_match:
+            version, size = llama_match.groups()
+            return f"llama{version}:{size}b"
+            
+        # Handle Phi models with hardcoded match
+        if model_name.startswith("microsoft/Phi-4-mini-instruct"):
+            return "phi4-mini:3.8b"
     
-    # Create a safe filename from the model name
-    safe_model_name = model_name.replace(":", "-").replace("/", "-")
+    return model_name
+
+def generate_output_path(model: str, cluster_id: int, tool_index: int, server_type: str) -> str:
+    """Generate a structured output path based on experiment parameters."""
+    # Create base directory if it doesn't exist
+    base_dir = Path("vllm" if server_type == "vllm" else "ollama")
+    base_dir.mkdir(exist_ok=True)
     
-    for i in range(1, n_runs + 1):
-        print(f"\n{'='*60}")
-        print(f"Running experiment {i}/{n_runs} for model: {model_name}")
-        print(f"{'='*60}")
-        
-        # Run experiment for the specified model
-        cmd = [
-            "uv", "run", "main.py",
-            "--model", model_name,
-            "--defense-mechanism", "noop",
-            "--modification", "noop",
-            "--dataset-size", "100",
-            "--output-path", f"{safe_model_name}-undefended-{i}"
-        ]
-        
-        print(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, text=True)
-        
-        if result.returncode == 0:
-            print(f"✅ {model_name} experiment {i} completed successfully")
-        else:
-            print(f"❌ {model_name} experiment {i} failed with error: {result.stderr}")
+    # Extract model name for filename
+    model_short_name = model.split('/')[-1].lower()
     
-    print(f"\n{'='*60}")
-    print(f"Completed {n_runs} experiment runs!")
-    print(f"{'='*60}")
+    # Format: {server_type}/cluster-{id}-tool-{index}-{model}-q0-100
+    filename = f"cluster-{cluster_id}-tool-{tool_index}-{model_short_name}-q0-100"
     
-    # List generated files
-    print("\nGenerated files:")
-    for i in range(1, n_runs + 1):
-        output_file = f"{safe_model_name}-undefended-{i}.jsonl"
-        
-        if os.path.exists(output_file):
-            print(f"  ✅ {output_file}")
-        else:
-            print(f"  ❌ {output_file} (missing)")
+    return str(base_dir / filename)
+
+def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int):
+    """Run a single experiment with the given parameters."""
+    # Fixed parameters
+    data_path = "data/clusters/bias_dataset_bfcl_format.jsonl"
+    question_start = 0
+    question_end = 100
+    attack_mode = "cluster-attack"
+    attack_modification = "both"
+    defense_mechanism = "none"
+    max_attempts = 10
+    
+    # Translate model name if needed
+    model_name = translate_model_name(model, server_type)
+    
+    # Generate output path
+    output_path = generate_output_path(model, cluster_id, tool_index, server_type)
+    
+    # Construct command
+    cmd = [
+        "python", "main.py",
+        "--attack-mode", attack_mode,
+        "--model", model_name,
+        "--data-path", data_path,
+        "--question-start", str(question_start),
+        "--question-end", str(question_end),
+        "--attack-modification", attack_modification,
+        "--cluster-id", str(cluster_id),
+        "--target-tool-index", str(tool_index),
+        "--defense-mechanism", defense_mechanism,
+        "--max-attempts", str(max_attempts),
+        "--output-path", output_path,
+        "--server-type", server_type,
+        "--server-port", str(server_port)
+    ]
+    
+    print(f"\nRunning experiment for tool index {tool_index}")
+    print(f"Output path: {output_path}")
+    print(f"Command: {' '.join(cmd)}\n")
+    
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running experiment for tool index {tool_index}: {e}", file=sys.stderr)
+        return False
+    return True
+
+def main():
+    parser = argparse.ArgumentParser(description="Run tool selection experiments for all tool indices")
+    
+    # Required arguments
+    parser.add_argument("--model", required=True, help="Model name (HuggingFace format)")
+    parser.add_argument("--cluster-id", type=int, required=True, help="Cluster ID (1-10)")
+    
+    # Optional arguments
+    parser.add_argument("--server-type", default="vllm", choices=["vllm", "ollama"], help="Server type")
+    parser.add_argument("--server-port", type=int, default=8000, help="Starting port number for server")
+    
+    args = parser.parse_args()
+    
+    # Run experiments for all tool indices (0-4)
+    for tool_index in range(5):
+        success = run_experiment(
+            model=args.model,
+            cluster_id=args.cluster_id,
+            tool_index=tool_index,
+            server_type=args.server_type,
+            server_port=args.server_port
+        )
+        if not success:
+            print(f"Stopping after failure on tool index {tool_index}")
+            sys.exit(1)
 
 if __name__ == "__main__":
-    # Get model name and number of runs from command line arguments
-    if len(sys.argv) < 2:
-        print("Usage: python run_multiple_experiments.py <model_name> [n_runs]")
-        print("Example: python run_multiple_experiments.py deepseek-r1:7b 10")
-        sys.exit(1)
-    
-    model_name = sys.argv[1]
-    n_runs = int(sys.argv[2]) if len(sys.argv) > 2 else 5
-    
-    print(f"Running {n_runs} experiments for model: {model_name}")
-    run_experiment(model_name, n_runs) 
+    main()
+
