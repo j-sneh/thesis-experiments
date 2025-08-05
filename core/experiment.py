@@ -474,7 +474,7 @@ class HeadToHeadExperiment:
                     # Count selections of our target tool
                     # We only look at the first tool call, as we assume the LLM will only call one tool
                     # TODO: Handle the case where the LLM calls multiple tools
-                    target_selected = False if tool_calls is None else called_tool_names[0] == current_name
+                    target_selected = False if tool_calls is None or len(tool_calls) == 0 else called_tool_names[0] == current_name
                     
                     # Update counters
                     if target_selected:
