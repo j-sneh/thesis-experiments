@@ -1,48 +1,12 @@
-{%- if messages %}
-    {%- if system_message or tools %}
-<|system|>
-
-{%- if system_message %}
-{{ system_message }}
-{%- endif %}
-{%- if tools %}
-<|tool|>
-        {%- for t in tools %}
-            {{- t | tojson(indent=4) }}
-            {{- "\n\n" }}
-        {%- endfor %}
-<|/tool|>
-{%- endif %}<|end|>
-    {%- endif %}
-
-    {%- for message in messages %}
-        {%- if message.role != "system" %}
-<|{{ message.role }}|>
-            {%- if message.content and message.role == "tools" %}
-{"result": {{ message.content }}}
-            {%- elif message.content %}
-{{ message.content }}
-            {%- elif message.tool_calls %}
-                {%- for call in message.tool_calls %}
-{"name": "{{ call.function.name }}", "arguments": {{ call.function.arguments }}}
-                    {%- if not loop.last %},{% endif %}
-                {%- endfor %}
-            {%- endif %}<|end|>
-        {%- endif %}
-    {%- endfor %}<|assistant|>
-
-{%- else %}
-    {%- if system_message %}
-<|system|>
-
-{{ system_message }}<|end|>
-    {%- endif %}
-    {%- if prompt %}
-<|user|>
-
-{{ prompt }}<|end|>
-    {%- endif %}<|assistant|>
-
-{%- endif %}
-{{ response }}
-{%- if response %}<|user|>{% endif %}
+{% for message in messages %}
+  {% if message.role == 'system' or tools %}
+<|{{ message.role }}|>{{ message.content }}<|tool|>{% for t in tools %}{% set func = t["function"] %}{% set params = func["parameters"]["properties"] %}{ {{"name": func["name"], "description": func["description"], "parameters": params} | tojson(indent=0) }}{% endfor %}<|/tool|><|end|>
+  {% else %}
+<|{{ message.role }}|>{{ message.content }}<|end|>
+  {% endif %}
+{% endfor %}
+{% if add_generation_prompt %}
+<|assistant|>
+{% else %}
+{{ eos_token }}
+{% endif %}

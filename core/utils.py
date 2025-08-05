@@ -109,14 +109,14 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
             commands.extend([
                 "--tool-call-parser",
                 "phi4_mini_json",
-                "--trust-remote-code"
+                "--trust-remote-code",
                 "--chat-template",
-                "templates/phi4-template.jinja"
+                "templates/phi4-basic.jinja"
             ])
         elif model_name.startswith("meta-llama/Llama-3.2"):
             commands.extend([
                 "--tool-call-parser",
-                "pythonic"
+                "llama3_json"
             ])
         else:
             raise ValueError(f"Unsupported model for vllm: {model_name}")

@@ -152,12 +152,12 @@ class OpenAIClient(LLMClient):
                 messages=messages,
                 tools=tools,
             ).model_dump()
-            # print(response)
+            print(response)
             return response['choices'][0]
         except Exception as e:
             print(f"An error occurred: {e}")
     
-    def wait_for_server_to_start(self, timeout: int = 300):
+    def wait_for_server_to_start(self, timeout: int = 600):
         """
         Wait for the server to start.
         """
