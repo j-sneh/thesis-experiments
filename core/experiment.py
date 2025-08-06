@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 from typing import Optional, Tuple
-from core.utils import load_data, load_cluster_data, spawn_server
+from core.utils import load_data, load_cluster_data, spawn_server, OLLAMA_PATH
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
 from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient
 from tqdm import tqdm
@@ -92,21 +92,30 @@ class HeadToHeadExperiment:
             messages.append({"role": "user", "content": f"FEEDBACK: Your last {attack_mode_string} was selected {prev['percent']}% of the time."})
 
         response = self.attacker_llm_client.invoke(messages, None)
+        if response is None:
+            raise ValueError(f"[Attacker LLM] No response from attacker LLM")
         improvement = ''
         return_val = ''
 
         try:
             attacker_json = json.loads(response['message']['content'])
             return_val = attacker_json[attack_mode_string]
-            improvement = attacker_json.get('improvement', '')
+            improvement = attacker_json['improvement']
         except KeyError as e:
             raise TypeError(f"[Attacker LLM] Invalid JSON format: {e}\nRaw output: {response}")
+        except TypeError as e:
+            print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response['message']['content']}")
+            return_val = tool['description'] if attack_mode == 'attack' else ''
+            improvement = ''
         except Exception as e:
             print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response['message']['content']}")
             return_val = tool['description'] if attack_mode == 'attack' else ''
             improvement = ''
 
         return improvement, return_val
+
+    
+
     
     
     def cluster_attack_get_improvement_with_feedback(self, tool: Dict[str, Any], improvement_history: list, current_description: str, current_name: str, question_results: list, overall_percent: float, tools_provided: list) -> Tuple[str, str, str]:
@@ -201,7 +210,7 @@ class HeadToHeadExperiment:
                 if match:
                     content = match.group(1).strip()
 
-            attacker_json = json.loads(content)
+            attacker_json = parse_json_inside_string(content)
             improvement = attacker_json.get('improvement', '')
             
             # Handle modification type restrictions
@@ -212,6 +221,11 @@ class HeadToHeadExperiment:
                 
         except KeyError as e:
             raise TypeError(f"[Attacker LLM] Invalid JSON format: {e}\nRaw output: {response}")
+        except TypeError as e:
+            print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response}")
+            improvement = ''
+            new_description = None
+            new_name = None
         except Exception as e:
             print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response['message']['content']}")
             improvement = ''
@@ -612,9 +626,12 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         # vllm needs separate server for each model
         port = server_port
         for model in models:
+            print(f"Spawning server for {model} at port {port}")
             url, process, log_handle = spawn_server(model, port, server_type, output_path)
             port += 1
             model_processes[model] = (url, process, log_handle)
+
+            print(f"Spawned server for {model} at {url}")
 
 
     try:
@@ -630,7 +647,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         if server_type == "ollama":
             # Ollama needs to pull the models before the client connects
             for model in models:
-                subprocess.run(["ollama", "pull", model], env=os.environ, check=True)
+                subprocess.run([OLLAMA_PATH, "pull", model], env=os.environ, check=True)
     # 
 
         experiment = HeadToHeadExperiment(

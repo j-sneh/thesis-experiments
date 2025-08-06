@@ -1,8 +1,11 @@
 import json
 import subprocess
 import os
+import time
 from typing import List, Dict, Any, Tuple
 import io
+
+OLLAMA_PATH = "pkg/bin/ollama"
 
 def load_data(file_path: str) -> List[Dict[str, Any]]:
     """Load data from a JSONL file."""
@@ -81,6 +84,9 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
         - The log file handle
     """
 
+    if server_type == "ollama":
+        port = 11434
+
     print(f"Spawning {server_type} server on port {port}")
     # Create log file path with output identifier
     output_identifier = os.path.splitext(os.path.basename(output_file_path))[0] if output_file_path else "default"
@@ -122,20 +128,34 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
             raise ValueError(f"Unsupported model for vllm: {model_name}")
             
     else:  # ollama
-
-        
-        # Set OLLAMA_HOST for the client
-        # env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
         env["OLLAMA_DEBUG"] = "2"
         env["OLLAMA_NUM_PARALLEL"] = "4"
 
-        #TODO: customize port for ollama
-        base_url = "http://127.0.0.1:11434/v1"
-
         commands = [
-            "ollama",
+            OLLAMA_PATH,
             "serve"
         ]
 
+    print(f"Running commands: {' '.join(commands)}")
+    
+    # Start the process
     process = subprocess.Popen(commands, env=env, stdout=log_handle, stderr=log_handle)
+    
+    # Give the process a moment to start and check if it's still running
+    # time.sleep(7)
+    if process.poll() is not None:
+        # Process has terminated
+        log_handle.flush()
+        with open(log_file, 'r') as f:
+            error_output = f.read()
+        raise RuntimeError(f"Server failed to start. Process exited with code {process.returncode}. Output:\n{error_output}")
+    
     return base_url, process, log_handle
+
+def parse_json_inside_string(s):
+    # parses first json inside a string which includes other text
+    s = s[next(idx for idx, c in enumerate(s) if c in "{["):]
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError as e:
+        return json.loads(s[:e.pos])
