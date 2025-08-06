@@ -21,10 +21,24 @@ Have your shell set to the conda environment
 conda activate attack
 ```
 
-Run an experiment (Qwen attacking Qwen), on cluster 1, all tools, 10 iterations
+Run an experiment (Qwen attacking Qwen), on cluster 1, all tools, 10 "attempts"
 
-Currently accepted models:
-Qwen/Qwen3-8B
+Should work with any tool-calling model on ollama, like:
+- qwen3:8b
+- llama3.2:3b
+- gpt-oss
+
+Some special templating stuff needs to be done for phi-4, I can include that in a script down the line. Run these commands :D
+
 ```bash
-CUDA_VISIBLE_DEVICES=0,7 python run_multiple_experiments.py --model Qwen/Qwen3-8B --cluster-id 5
+python run_multiple_experiments.py --model qwen3:8b  --cluster-id 1
 ```
+
+If that works, run on all 9 remaining clusters:
+
+```bash
+for i in {2..10}; do
+  python run_multiple_experiments.py --model qwen3:8b --cluster-id $i
+done
+```
+

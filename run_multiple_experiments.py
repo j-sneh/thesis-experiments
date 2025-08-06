@@ -42,7 +42,7 @@ def generate_output_path(model: str, cluster_id: int, tool_index: int, server_ty
     
     return str(base_dir / filename)
 
-def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int):
+def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, attacker_llm_model: str = None):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
     data_path = "data/clusters/bias_dataset_bfcl_format.jsonl"
@@ -74,8 +74,12 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
         "--max-attempts", str(max_attempts),
         "--output-path", output_path,
         "--server-type", server_type,
-        "--server-port", str(server_port)
+        "--server-port", str(server_port),
     ]
+
+    if attacker_llm_model is not None:
+        cmd.append("--attacker-llm-model")
+        cmd.append(translate_model_name(attacker_llm_model, server_type))
     
     print(f"\nRunning experiment for tool index {tool_index}")
     print(f"Output path: {output_path}")
@@ -96,9 +100,9 @@ def main():
     parser.add_argument("--cluster-id", type=int, required=True, help="Cluster ID (1-10)")
     
     # Optional arguments
-    parser.add_argument("--server-type", default="vllm", choices=["vllm", "ollama"], help="Server type")
+    parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama"], help="Server type")
     parser.add_argument("--server-port", type=int, default=8000, help="Starting port number for server")
-    
+    parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace format)")
     args = parser.parse_args()
     
     # Run experiments for all tool indices (0-4)
@@ -108,7 +112,8 @@ def main():
             cluster_id=args.cluster_id,
             tool_index=tool_index,
             server_type=args.server_type,
-            server_port=args.server_port
+            server_port=args.server_port,
+            attacker_llm_model=args.attacker_llm_model
         )
         if not success:
             print(f"Stopping after failure on tool index {tool_index}")

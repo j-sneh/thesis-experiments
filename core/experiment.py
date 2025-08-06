@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 from typing import Optional, Tuple
-from core.utils import load_data, load_cluster_data, spawn_server, OLLAMA_PATH
+from core.utils import load_data, load_cluster_data, spawn_server, OLLAMA_PATH, parse_json_inside_string
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
 from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient
 from tqdm import tqdm
