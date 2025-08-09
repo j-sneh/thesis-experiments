@@ -142,7 +142,7 @@ class OpenAIClient(LLMClient):
             api_key="no key needed thus far"
         )
 
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
         """
         Invoke the OpenAI Proxy model with a list of messages and a list of tools.
         """
@@ -151,6 +151,7 @@ class OpenAIClient(LLMClient):
                 model=self.model,
                 messages=messages,
                 tools=tools,
+                temperature=temperature,
             ).model_dump()
             # print(response)
             return response['choices'][0]
