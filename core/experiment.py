@@ -179,6 +179,9 @@ class HeadToHeadExperiment:
                     successful.append(result)
                 else:
                     unsuccessful.append(result)
+            # Randomly shuffle the lists
+            random.shuffle(successful)
+            random.shuffle(unsuccessful)
             # Take up to 5 from each, but if not enough, fill from the other
             selected_results = successful[:5] + unsuccessful[:5]
             if len(selected_results) < 10:
@@ -194,7 +197,7 @@ class HeadToHeadExperiment:
         
         messages.append({"role": "user", "content": feedback_info})
         
-        response = self.attacker_llm_client.invoke(messages, None)
+        response = self.attacker_llm_client.invoke(messages, None, temperature=0.8)
         improvement = ''
         new_description = None
         new_name = None
