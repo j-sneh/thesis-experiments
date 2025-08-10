@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import subprocess
 import time
+import random
 
 class ThreadSafeCounter:
     def __init__(self):
@@ -106,11 +107,11 @@ class HeadToHeadExperiment:
         except TypeError as e:
             print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response['message']['content']}")
             return_val = tool['description'] if attack_mode == 'attack' else ''
-            improvement = ''
+            improvement = 'Failed to parse the output. Reusing the previous output. Next time, I should only output JSON text and nothing else'
         except Exception as e:
             print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response['message']['content']}")
             return_val = tool['description'] if attack_mode == 'attack' else ''
-            improvement = ''
+            improvement = 'Failed to parse the output. Reusing the previous output. Next time, I should only output JSON text and nothing else'
 
         return improvement, return_val
 
