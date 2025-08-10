@@ -49,6 +49,8 @@ echo "Ollama server is up."
 # Pull models
 pkg/bin/ollama pull qwen3:8b
 pkg/bin/ollama pull llama3.2:3b
-pkg/bin/ollama pull phi4-mini:3.8b
+# pkg/bin/ollama pull phi4-mini:3.8b
+pkg/bin/ollama pull phi4-mini:3.8b-fp16
+pkg/bin/ollama create phi4-mini:3.8b-fp16 -f Modelfiles/phi4.Modelfile
 
 echo "Model downloads complete."
