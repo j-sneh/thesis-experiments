@@ -646,8 +646,9 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
 
         if server_type == "ollama":
             # Ollama needs to pull the models before the client connects
-            for model in models:
-                subprocess.run([OLLAMA_PATH, "pull", model], env=os.environ, check=True)
+           # for model in models:
+           #     subprocess.run([OLLAMA_PATH, "pull", model], env=os.environ, check=True)
+           pass # for now, assume models have been pulled - this has been a source of error for me
     # 
 
         experiment = HeadToHeadExperiment(
