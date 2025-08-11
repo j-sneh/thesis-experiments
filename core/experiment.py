@@ -198,7 +198,7 @@ class HeadToHeadExperiment:
         
         messages.append({"role": "user", "content": feedback_info})
         
-        response = self.attacker_llm_client.invoke(messages, None, temperature=0.8)
+        response = self.attacker_llm_client.invoke(messages, None, temperature=0.5) # higher temperature was causing no json output
         improvement = ''
         new_description = None
         new_name = None
