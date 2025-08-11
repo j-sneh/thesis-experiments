@@ -115,7 +115,7 @@ def main():
     parser.add_argument("--cluster-id", type=int, nargs="+", required=True, help="Cluster ID (1-10) can either be a single number 1-10 for a single trial, or a range (2 numbers)")
     
     # Optional arguments
-    # parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama"], help="Server type")
+    parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama", "hflocal"], help="Server type")
     parser.add_argument("--server-port", type=int, default=11434, help="Starting port number for server")
     parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace or Ollama format)")
     parser.add_argument("--defender-llm-model", default=None, help="Defender model name (HuggingFace or Ollama format)")
@@ -148,21 +148,24 @@ def main():
     else:
         raise ValueError("Tool index must be a single number or a range of 2 numbers")
 
-    server_type = "ollama"
+    server_type = args.server_type
 
+
+    model_processes = {}
+    if server_type == "ollama":
     # Spawn the server for the main model
-    base_dir = generate_base_dir(args.model, server_type, args.cluster_id, args.defense_mechanism)
-    url, process, log_handle = spawn_server(args.model, args.server_port, server_type, base_dir / "PLACEHOLDER_FILE_TO_REMOVE")
-    print(f"Spawned server for {args.model} at {url}")
+        base_dir = generate_base_dir(args.model, server_type, args.cluster_id, args.defense_mechanism)
+        url, process, log_handle = spawn_server(args.model, args.server_port, server_type, base_dir / "PLACEHOLDER_FILE_TO_REMOVE")
+        print(f"Spawned server for {args.model} at {url}")
 
-    # Wait for the server to start
-    client = OpenAIClient(args.model, url)
-    client.wait_for_server_to_start()
-    print(f"Server for {args.model} started")
+        # Wait for the server to start
+        client = OpenAIClient(args.model, url)
+        client.wait_for_server_to_start()
+        print(f"Server for {args.model} started")
+        model_processes["ollama"] = (url, process, log_handle)
 
     
     try:
-    
         # Record command run
         base_dir.mkdir(exist_ok=True, parents=True)
         with open(base_dir / "args.json", "w") as f:
@@ -175,14 +178,14 @@ def main():
                     model=args.model,
                     cluster_id=cluster_id,
                     tool_index=tool_index,
-                    server_type="ollama",
+                    server_type=server_type,
                     server_port=args.server_port,
-                    url=url,
                     attacker_llm_model=args.attacker_llm_model,
                     defender_llm_model=args.defender_llm_model,
                     defense_mechanism=args.defense_mechanism,
                     debug=args.debug,
                     base_dir=base_dir
+                    url=url if server_type == "ollama" else None,
                 )
                 if not success:
                     print(f"Stopping after failure on tool index {tool_index}")

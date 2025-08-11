@@ -170,3 +170,137 @@ class OpenAIClient(LLMClient):
                 time.sleep(0.5)
                 if time.time() - start_time > timeout:
                     raise TimeoutError(f"Server did not start within {timeout} seconds")
+
+# pip install transformers accelerate torch --extra-index-url https://download.pytorch.org/whl/cu124
+import torch
+from typing import List, Dict, Any, Optional
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+
+class HFLocalClient:
+    """
+    Minimal local HF client that mirrors your server client's .invoke() signature:
+    returns {'message': {'content': <str>}}.
+    Loads model fully on GPU (no CPU offload).
+    """
+    def __init__(
+        self,
+        model: str,
+        base_url: str = None,
+        torch_dtype: torch.dtype = torch.bfloat16,
+        device: str = "cuda",
+        max_model_len: Optional[int] = None,
+        attn_impl: Optional[str] = "flash_attention_2",  # if available for your GPU
+        trust_remote_code: bool = False,
+        compile_model: bool = False,   # optional: torch.compile for extra speed
+        gen_cfg: Optional[GenerationConfig] = None,
+    ):
+        self.tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=trust_remote_code)
+        # ensure pad token exists for batching/truncation
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        model_kwargs = {
+            "torch_dtype": torch_dtype,
+            "device_map": "cuda" if device == "cuda" else device,  # keeps all weights on GPU
+            "trust_remote_code": trust_remote_code,
+        }
+        if attn_impl is not None:
+            model_kwargs["attn_implementation"] = attn_impl
+
+        self.model = AutoModelForCausalLM.from_pretrained(model, **model_kwargs).eval()
+
+        # Optional compile (PyTorch 2.3+), helps some GPUs/models
+        if compile_model:
+            try:
+                self.model = torch.compile(self.model)
+            except Exception:
+                pass
+
+        # effective max length
+        self.max_model_len = max_model_len or getattr(self.model.config, "max_position_embeddings", 8192)
+
+        # default generation config; can be overridden per-call
+        self.gen_cfg = gen_cfg or GenerationConfig(
+            max_new_tokens=256,
+            temperature=0.7,
+            top_p=0.9,
+            do_sample=True,
+            repetition_penalty=1.05,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+        )
+
+        # minor speedups
+        torch.backends.cuda.matmul.allow_tf32 = True
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.benchmark = True
+
+    def _messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
+        # If the tokenizer provides a chat template, use it; otherwise, do a simple join.
+        if hasattr(self.tokenizer, "apply_chat_template") and self.tokenizer.chat_template:
+            return self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        # Fallback basic formatting
+        parts = []
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role == "system":
+                parts.append(f"<|system|>\n{content}\n")
+            elif role == "assistant":
+                parts.append(f"<|assistant|>\n{content}\n")
+            else:
+                parts.append(f"<|user|>\n{content}\n")
+        parts.append("<|assistant|>\n")
+        return "".join(parts)
+
+    def invoke(
+        self,
+        messages: List[Dict[str, str]],
+        _unused=None,
+        *,
+        stop: Optional[List[str]] = None,
+        generation_overrides: Optional[dict] = None,
+    ) -> Dict[str, Any]:
+        prompt = self._messages_to_prompt(messages)
+
+        # Tokenize to CUDA with truncation
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            padding=False,
+            truncation=True,
+            max_length=self.max_model_len,
+        ).to("cuda")
+
+        gen_cfg = self.gen_cfg
+        if generation_overrides:
+            gen_cfg = GenerationConfig(**{**gen_cfg.to_dict(), **generation_overrides})
+
+        with torch.inference_mode(), torch.cuda.amp.autocast(dtype=self.model.dtype):
+            out = self.model.generate(
+                **inputs,
+                max_new_tokens=gen_cfg.max_new_tokens,
+                temperature=gen_cfg.temperature,
+                top_p=gen_cfg.top_p,
+                do_sample=gen_cfg.do_sample,
+                repetition_penalty=gen_cfg.repetition_penalty,
+                eos_token_id=gen_cfg.eos_token_id,
+                pad_token_id=gen_cfg.pad_token_id,
+            )
+
+        text = self.tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+
+        # Apply optional stop strings client-side
+        if stop:
+            cut = len(text)
+            for s in stop:
+                idx = text.find(s)
+                if idx != -1:
+                    cut = min(cut, idx)
+            text = text[:cut]
+
+        return {"message": {"content": text}}

@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from typing import Optional, Tuple
 from core.utils import load_data, load_cluster_data, spawn_server, OLLAMA_PATH, parse_json_inside_string
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
-from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient
+from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient, HFLocalClient
 from tqdm import tqdm
 import json
 import copy
@@ -597,7 +597,7 @@ class HeadToHeadExperiment:
 
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
-                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="ollama",
+                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal",
                                 model_url=None, attacker_url=None, defender_url=None):
     """
     Run an LLM tool selection experiment.
@@ -625,7 +625,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         attacker_url: URL for the attacker model server (if already running, skips spawning)
         defender_url: URL for the defender model server (if already running, skips spawning)
     """
-    
+
     client_class = None
     if client == "vllm":
         client_class = VLLMClient
@@ -633,6 +633,8 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         client_class = OllamaClient
     elif client == "openai":
         client_class = OpenAIClient
+    elif client == "hflocal" and server_type == "hflocal":
+        client_class = HFLocalClient
     else:
         raise ValueError(f"Invalid client: {client}")
 
@@ -675,12 +677,16 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
                 server_port += 1
                 print(f"Spawned vLLM server for {model} at {url}")
 
-
     try:
-        llm_client = client_class(model_name, base_url=model_processes[model_name][0])
-        attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
-        defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client
-
+        breakpoint()
+        if server_type != "hflocal":
+            llm_client = client_class(model_name, base_url=model_processes[model_name][0])
+            attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
+            defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client
+        else:
+            llm_client = client_class(model_name, None)
+            attacker_llm_client = client_class(attacker_llm_model, base_url=None) if attacker_llm_model else llm_client     
+            defender_llm_client = client_class(defender_llm_model, base_url=None) if defender_llm_model else llm_client            
 
         llm_client.wait_for_server_to_start()
         attacker_llm_client.wait_for_server_to_start()
