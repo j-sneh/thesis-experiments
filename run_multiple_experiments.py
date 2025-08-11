@@ -100,7 +100,7 @@ def main():
     parser.add_argument("--cluster-id", type=int, required=True, help="Cluster ID (1-10)")
     
     # Optional arguments
-    parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama"], help="Server type")
+    parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama", "hflocal"], help="Server type")
     parser.add_argument("--server-port", type=int, default=8000, help="Starting port number for server")
     parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace format)")
     args = parser.parse_args()

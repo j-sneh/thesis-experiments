@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from typing import Optional, Tuple
 from core.utils import load_data, load_cluster_data, spawn_server, OLLAMA_PATH, parse_json_inside_string
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
-from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient
+from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient, HFLocalClient
 from tqdm import tqdm
 import json
 import copy
@@ -577,7 +577,7 @@ class HeadToHeadExperiment:
 
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
-                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="ollama"):
+                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal"):
     """
     Run an LLM tool selection experiment.
     
@@ -599,7 +599,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         question_end: End index for questions in cluster-attack mode
         attack_modification_type: Type of modification for cluster-attack mode ('description', 'name', or 'both')
     """
-    
+
     client_class = None
     if client == "vllm":
         client_class = VLLMClient
@@ -607,22 +607,23 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         client_class = OllamaClient
     elif client == "openai":
         client_class = OpenAIClient
+    elif client == "hflocal":
+        client_class = HFLocalClient
     else:
         raise ValueError(f"Invalid client: {client}")
 
-    
     # Start the servers for the LLMs
     models = set([model_name, attacker_llm_model, defender_llm_model])
     
     model_processes = {}
     if server_type == "ollama":
         # Need to download the models if they are not already present
-        
+
         # Ollama can handle multiple models on one server
         url, process, log_handle = spawn_server(None, server_port, server_type, output_path)
         for model in models:
             model_processes[model] = (url, process, log_handle)
-    else:  # vllm
+    elif server_type == "vllm":  # vllm
         # vllm needs separate server for each model
         port = server_port
         for model in models:
@@ -630,15 +631,18 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             url, process, log_handle = spawn_server(model, port, server_type, output_path)
             port += 1
             model_processes[model] = (url, process, log_handle)
-
             print(f"Spawned server for {model} at {url}")
 
-
     try:
-        llm_client = client_class(model_name, base_url=model_processes[model_name][0])
-        attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
-        defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client
-
+        breakpoint()
+        if server_type != "hflocal":
+            llm_client = client_class(model_name, base_url=model_processes[model_name][0])
+            attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
+            defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client
+        else:
+            llm_client = client_class(model_name, None)
+            attacker_llm_client = client_class(attacker_llm_model, base_url=None) if attacker_llm_model else llm_client     
+            defender_llm_client = client_class(defender_llm_model, base_url=None) if defender_llm_model else llm_client            
 
         llm_client.wait_for_server_to_start()
         attacker_llm_client.wait_for_server_to_start()
@@ -648,7 +652,6 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             # Ollama needs to pull the models before the client connects
             for model in models:
                 subprocess.run([OLLAMA_PATH, "pull", model], env=os.environ, check=True)
-    # 
 
         experiment = HeadToHeadExperiment(
             llm_client=llm_client,
