@@ -1,6 +1,7 @@
 from typing import Dict, Any, List
 import copy
 from core.llm_clients import LLMClient
+import re
 
 def duplicate_and_rename_tool(tool: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Duplicates a tool and renames the copies to tool1 and tool2."""
@@ -111,7 +112,15 @@ def llm_defense_mechanism(description: str, prompt_path: str, llm_client: LLMCli
 
         response = llm_client.invoke(messages, None)
 
-        return response['message']['content']
+        
+        content = response['message']['content']
+        if '<think>' in content and '</think>' in content:
+            match = re.search(r'<think>.*?</think>(.*)', content, flags=re.DOTALL)
+
+            if match:
+                content = match.group(1).strip()
+
+        return content
 
 def format_tool_for_openai_api(tool: Dict[str, Any]) -> Dict[str, Any]:
     """

@@ -15,29 +15,51 @@ The commands to get the experiments to run are
 ./setup.sh
 ```
 
+This script will also pull the models from ollama. Sometimes there are issues connecting to the remote server to pull the model.
+If there are any problems, then you can manually pull `ollama pull <model name>` from the script.
+
 Have your shell set to the conda environment
 
 ```bash
 conda activate attack
 ```
 
-Run an experiment (Qwen attacking Qwen), on cluster 1, all tools, 10 "attempts"
+I have updated so that no looping in bash is needed to run model experiments, it can all be done by the script `run_multiple_experiments.py`
 
-Should work with any tool-calling model on ollama, like:
+
+We should run on all of these models:
 - qwen3:8b
 - llama3.2:3b
-- gpt-oss
-
-Some special templating stuff needs to be done for phi-4, I can include that in a script down the line. Run these commands :D
-
-```bash
-python run_multiple_experiments.py --model qwen3:8b  --cluster-id 1
-```
-
-If that works, run on all 9 remaining clusters:
+- gpt-oss:20b
+- phi4-mini-tool-prompt:3.8b-fp16
 
 ```bash
-for i in {2..10}; do
-  python run_multiple_experiments.py --model qwen3:8b --cluster-id $i
-done
+python run_multiple_experiments.py --model qwen3:8b --cluster-id 1 10 --server-port 8000
 ```
+```bash
+python run_multiple_experiments.py --model llama3.2:3b --cluster-id 1 10 --server-port 8001
+```
+```bash
+python run_multiple_experiments.py --model gpt-oss:20b --cluster-id 1 10 --server-port 8002
+```
+```bash
+python run_multiple_experiments.py --model phi4-mini-tool-prompt:3.8b-fp16 --cluster-id 1 10 --server-port 8003
+```
+
+You can also specify the `--server-port` to spawn separate ollama servers (default is 8000). This will allow multiple experiments to run in parallel
+
+I have also implemented defense in the pipeline, which we should run with:
+
+```bash
+python run_multiple_experiments.py --model qwen3:8b --cluster-id 1 10 --defense-mechanism objective --server-port 8000
+```
+```bash
+python run_multiple_experiments.py --model llama3.2:3b --cluster-id 1 10 --defense-mechanism objective --server-port 8001
+```
+```bash
+python run_multiple_experiments.py --model gpt-oss:20b --cluster-id 1 10 --defense-mechanism objective --server-port 8002
+```
+```bash
+python run_multiple_experiments.py --model phi4-mini-tool-prompt:3.8b-fp16 --cluster-id 1 10 --defense-mechanism objective --server-port 8003
+```
+
