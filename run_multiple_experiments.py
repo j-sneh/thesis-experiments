@@ -102,7 +102,7 @@ def main():
     # Optional arguments
     parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama"], help="Server type")
     parser.add_argument("--server-port", type=int, default=8000, help="Starting port number for server")
-    parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace format)")
+    parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace or Ollama format)")
     args = parser.parse_args()
     
     # Run experiments for all tool indices (0-4)
