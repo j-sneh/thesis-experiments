@@ -84,9 +84,6 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
         - The log file handle
     """
 
-    if server_type == "ollama":
-        port = 11434
-
     print(f"Spawning {server_type} server on port {port}")
     # Create log file path with output identifier
     output_identifier = os.path.splitext(os.path.basename(output_file_path))[0] if output_file_path else "default"
@@ -130,6 +127,7 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
     else:  # ollama
         env["OLLAMA_DEBUG"] = "2"
         env["OLLAMA_NUM_PARALLEL"] = "4"
+        env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
 
         commands = [
             OLLAMA_PATH,
