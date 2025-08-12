@@ -42,16 +42,15 @@ def generate_output_path(model: str, cluster_id: int, tool_index: int, server_ty
     
     return str(base_dir / filename)
 
-def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, attacker_llm_model: str = None):
+def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, attacker_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
     data_path = "data/clusters/bias_dataset_bfcl_format.jsonl"
     question_start = 0
-    question_end = 100
+    question_end = 100 if not debug else 5
     attack_mode = "cluster-attack"
     attack_modification = "both"
-    defense_mechanism = "none"
-    max_attempts = 10
+    max_attempts = 10 if not debug else 3
     
     # Translate model name if needed
     model_name = translate_model_name(model, server_type)
@@ -70,7 +69,7 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
         "--attack-modification", attack_modification,
         "--cluster-id", str(cluster_id),
         "--target-tool-index", str(tool_index),
-        "--defense-mechanism", defense_mechanism,
+        "--defense-mechanism", str(defense_mechanism),
         "--max-attempts", str(max_attempts),
         "--output-path", output_path,
         "--server-type", server_type,
@@ -80,6 +79,7 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
     if attacker_llm_model is not None:
         cmd.append("--attacker-llm-model")
         cmd.append(translate_model_name(attacker_llm_model, server_type))
+    
     
     print(f"\nRunning experiment for tool index {tool_index}")
     print(f"Output path: {output_path}")
@@ -103,6 +103,8 @@ def main():
     parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama"], help="Server type")
     parser.add_argument("--server-port", type=int, default=8000, help="Starting port number for server")
     parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace or Ollama format)")
+    parser.add_argument("--defense-mechanism", default="none", choices=["none", "objective", "reword"], help="Defense mechanism to apply to the tool description.")
+    parser.add_argument("--debug", action="store_true", help="Run a small number of trials for debugging")
     args = parser.parse_args()
     
     # Run experiments for all tool indices (0-4)
@@ -113,7 +115,9 @@ def main():
             tool_index=tool_index,
             server_type=args.server_type,
             server_port=args.server_port,
-            attacker_llm_model=args.attacker_llm_model
+            attacker_llm_model=args.attacker_llm_model,
+            defense_mechanism=args.defense_mechanism,
+            debug=args.debug
         )
         if not success:
             print(f"Stopping after failure on tool index {tool_index}")
