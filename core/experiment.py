@@ -12,7 +12,6 @@ import threading
 import subprocess
 import time
 import random
-import re
 
 class ThreadSafeCounter:
     def __init__(self):
@@ -168,7 +167,7 @@ class HeadToHeadExperiment:
             tool_desc = tool['function'].get('description', 'No description')
             feedback_info += f"{tool_name} - {tool_desc} - {tool['function']['parameters']}\n"
         
-        feedback_info += "Here are a sample of the questions asked and the tools that were subsequently called:\n"
+        feedback_info += f"Here are a sample of the questions asked and the tools that were subsequently called:\n"
         # Select up to 5 successful and up to 5 unsuccessful trials, or 10 in total
         selected_results = []
         if len(question_results) < 10:
@@ -209,6 +208,7 @@ class HeadToHeadExperiment:
             # remove content between <think> and </think> if it exists
             # todo: customize parsing for different models
             if '<think>' in content and '</think>' in content:
+                import re
                 match = re.search(r'<think>.*?</think>(.*)', content, flags=re.DOTALL)
 
                 if match:
@@ -243,7 +243,6 @@ class HeadToHeadExperiment:
         for i, tool in enumerate(defended_tools):
              defended_tools[i]['function']['description'] = get_defended_description(tool, defense, llm_client)
         return defended_tools
-
 
     def run_trial_pair(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], 
                       defense: str, target_tool_name: str, output_file, 
@@ -460,23 +459,16 @@ class HeadToHeadExperiment:
             current_description = all_tools[target_tool_index].get('description', '')
             current_name = all_tools[target_tool_index]['name']
             
-            # Format tools for OpenAI API
-            formatted_tools = [format_tool_for_openai_api(t) for t in all_tools]
-                
-            # Apply defense
-            defended_tools = self.apply_defense_to_tools(formatted_tools, self.defense_mechanism, self.defender_llm_client)
-            
             for attempt in range(self.max_attempts):
-                # Get the new tool description and name
+                # Create modified tools list with the updated target tool
                 all_tools[target_tool_index] = modify_tool_for_cluster_attack(all_tools[target_tool_index], current_description, current_name)
-                formatted_tools[target_tool_index] = format_tool_for_openai_api(all_tools[target_tool_index])
-
-                # Apply defense to the new tool
-                print(f"Defending tool {target_tool_index} with description {current_description} and name {current_name}")
-
-                defended_tools[target_tool_index]['function']['description'] = get_defended_description(formatted_tools[target_tool_index], self.defense_mechanism, self.defender_llm_client)
                 
-            
+                # Format tools for OpenAI API
+                formatted_tools = [format_tool_for_openai_api(t) for t in all_tools]
+                
+                # Apply defense if needed
+                defended_tools = self.apply_defense_to_tools(formatted_tools, self.defense_mechanism, self.defender_llm_client)
+                
                 # Initialize thread-safe counters and shared data structures
                 selection_counter = ThreadSafeCounter()
                 calls_counter = ThreadSafeCounter()
@@ -487,9 +479,9 @@ class HeadToHeadExperiment:
                 def run_trial(question, idx):
                     messages = question
                     
-                    # Shuffle tools to prevent ordering bias
-                    shuffled_tools = copy.deepcopy(defended_tools)
-                    random.shuffle(shuffled_tools)
+                    # shuffle tools
+                    shuffled_tools = defended_tools.copy()
+                    random.shuffle(shuffled_tools)  
 
                     # Run the trial with all tools
                     response = self.llm_client.invoke(messages, shuffled_tools)
@@ -577,6 +569,7 @@ class HeadToHeadExperiment:
                 improvement_history_file.write(json.dumps(improvement_record) + "\n")
                 improvement_history_file.flush()
 
+                print(f"Attempt {attempt+1}: {percent:.2f}% selection rate ({total_count}/{total_calls} selections)")
                 # Get improvement from attacker with detailed feedback
                 improvement, new_description, new_name = self.cluster_attack_get_improvement_with_feedback(
                     all_tools[target_tool_index], improvement_history, current_description, current_name, 
@@ -590,7 +583,6 @@ class HeadToHeadExperiment:
                     current_name = new_name
                 
                 
-                print(f"Attempt {attempt+1}: {percent:.2f}% selection rate ({total_count}/{total_calls} selections)")
 
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
@@ -634,7 +626,6 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
     model_processes = {}
     if server_type == "ollama":
         # Need to download the models if they are not already present
-        
         # Ollama can handle multiple models on one server
         url, process, log_handle = spawn_server(None, server_port, server_type, output_path)
         for model in models:
