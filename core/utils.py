@@ -128,6 +128,7 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
         env["OLLAMA_DEBUG"] = "2"
         env["OLLAMA_NUM_PARALLEL"] = "4"
         env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
+        env["OLLAMA_CONTEXT_LENGTH"] = "8192"
 
         commands = [
             OLLAMA_PATH,
@@ -152,7 +153,7 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
 
 def parse_json_inside_string(s):
     # parses first json inside a string which includes other text
-    s = s[next(idx for idx, c in enumerate(s) if c in "{["):]
+    s = s[next(idx for idx, c in enumerate(s) if c in '{'):]
     try:
         return json.loads(s)
     except json.JSONDecodeError as e:

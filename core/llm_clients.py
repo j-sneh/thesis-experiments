@@ -149,7 +149,6 @@ class OpenAIClient(LLMClient):
                 tools=tools,
                 temperature=temperature,
             ).model_dump()
-            # print(response)
             return response['choices'][0]
         except Exception as e:
             print(f"An error occurred: {e}")
