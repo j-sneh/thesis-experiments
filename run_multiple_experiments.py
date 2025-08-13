@@ -40,7 +40,7 @@ def generate_base_dir(model: str, server_type: str, cluster_id: int, defense_mec
     model_short_name = sanitize_model_name(model.lower())
     timestamp = int(time.time())
 
-    bd =  Path("vllm" if server_type == "vllm" else "ollama") / model_short_name /  str(timestamp)
+    bd =  Path(server_type) / model_short_name /  str(timestamp)
     return bd
 
 def generate_output_path(model: str, cluster_id: int, tool_index: int, server_type: str, base_dir: Path) -> str:
@@ -83,9 +83,6 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
         "--output-path", output_path,
         "--server-type", server_type,
         "--server-port", str(server_port),
-        "--model-url", url,
-        "--attacker-url", url,
-        "--defender-url", url,
     ]
 
     if attacker_llm_model is not None:
@@ -96,8 +93,19 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
         cmd.append("--defender-llm-model")
         cmd.append(translate_model_name(defender_llm_model, server_type))
     
+    # if we are spawning a server, we need to pass the url to the experiment
+    # this is in the case of ollama (or vllm) and not hflocal
+    if url is not None:
+        cmd.append("--model-url")
+        cmd.append(url)
+        cmd.append("--attacker-url")
+        cmd.append(url)
+        cmd.append("--defender-url")
+        cmd.append(url)
+    
     print(f"\nRunning experiment for tool index {tool_index}")
     print(f"Output path: {output_path}")
+    print(cmd)
     print(f"Command: {' '.join(cmd)}\n")
     
     try:
@@ -115,7 +123,7 @@ def main():
     parser.add_argument("--cluster-id", type=int, nargs="+", required=True, help="Cluster ID (1-10) can either be a single number 1-10 for a single trial, or a range (2 numbers)")
     
     # Optional arguments
-    parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama", "hflocal"], help="Server type")
+    parser.add_argument("--server-type", default="hflocal", choices=["vllm", "ollama", "hflocal"], help="Server type")
     parser.add_argument("--server-port", type=int, default=11434, help="Starting port number for server")
     parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace or Ollama format)")
     parser.add_argument("--defender-llm-model", default=None, help="Defender model name (HuggingFace or Ollama format)")
@@ -149,19 +157,22 @@ def main():
         raise ValueError("Tool index must be a single number or a range of 2 numbers")
 
     server_type = args.server_type
+    model = translate_model_name(args.model, server_type)
+    attacker_llm_model = translate_model_name(args.attacker_llm_model, server_type) if args.attacker_llm_model else None
+    defender_llm_model = translate_model_name(args.defender_llm_model, server_type) if args.defender_llm_model else None
 
 
     model_processes = {}
+    base_dir = generate_base_dir(model, server_type, args.cluster_id, args.defense_mechanism)
     if server_type == "ollama":
     # Spawn the server for the main model
-        base_dir = generate_base_dir(args.model, server_type, args.cluster_id, args.defense_mechanism)
-        url, process, log_handle = spawn_server(args.model, args.server_port, server_type, base_dir / "PLACEHOLDER_FILE_TO_REMOVE")
-        print(f"Spawned server for {args.model} at {url}")
+        url, process, log_handle = spawn_server(model, args.server_port, server_type, base_dir / "PLACEHOLDER_FILE_TO_REMOVE")
+        print(f"Spawned server for {model} at {url}")
 
         # Wait for the server to start
-        client = OpenAIClient(args.model, url)
+        client = OpenAIClient(model, url)
         client.wait_for_server_to_start()
-        print(f"Server for {args.model} started")
+        print(f"Server for {model} started")
         model_processes["ollama"] = (url, process, log_handle)
 
     
@@ -175,25 +186,26 @@ def main():
         for cluster_id in cluster_ids:
             for tool_index in tool_indices:
                 success = run_experiment(
-                    model=args.model,
+                    model=model,
                     cluster_id=cluster_id,
                     tool_index=tool_index,
                     server_type=server_type,
                     server_port=args.server_port,
-                    attacker_llm_model=args.attacker_llm_model,
-                    defender_llm_model=args.defender_llm_model,
+                    attacker_llm_model=attacker_llm_model,
+                    defender_llm_model=defender_llm_model,
                     defense_mechanism=args.defense_mechanism,
                     debug=args.debug,
-                    base_dir=base_dir
-                    url=url if server_type == "ollama" else None,
+                    base_dir=base_dir,
+                    url=url if server_type == "ollama" else None
                 )
                 if not success:
                     print(f"Stopping after failure on tool index {tool_index}")
                     sys.exit(1)
     finally:
         # Kill the server
-        process.terminate()
-        log_handle.close()
+        for _, process, log_handle in model_processes.values():
+            process.terminate()
+            log_handle.close()
         print(f"Killed server")
 
 if __name__ == "__main__":

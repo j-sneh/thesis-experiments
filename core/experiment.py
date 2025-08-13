@@ -627,16 +627,11 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
     """
 
     client_class = None
-    if client == "vllm":
-        client_class = VLLMClient
-    elif client == "ollama":
-        client_class = OllamaClient
-    elif client == "openai":
-        client_class = OpenAIClient
-    elif client == "hflocal" and server_type == "hflocal":
+    # TODO: deprecate client argument entirely
+    if server_type == "hflocal":
         client_class = HFLocalClient
     else:
-        raise ValueError(f"Invalid client: {client}")
+        client_class = OpenAIClient
 
     
     # Start the servers for the LLMs or use provided URLs
@@ -652,7 +647,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             # Use provided URL, no server spawning needed
             model_processes[model] = (url, None, None)
             print(f"Using existing server for {model} at {url}")
-        elif model:
+        elif model and server_type != "hflocal":
             # Model exists but no URL provided, needs server
             models_needing_servers.append(model)
     
@@ -668,7 +663,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             for model in models_needing_servers:
                 model_processes[model] = (url, process, log_handle)
                 print(f"Spawned Ollama server for {model} at {url}")
-        else:  # vllm
+        elif server_type == "vllm":  # vllm
             # vllm needs separate server for each model
             for model in models_needing_servers:
                 print(f"Spawning vLLM server for {model} at port {server_port}")
