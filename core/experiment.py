@@ -688,9 +688,10 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             attacker_llm_client = client_class(attacker_llm_model, base_url=None) if attacker_llm_model else llm_client     
             defender_llm_client = client_class(defender_llm_model, base_url=None) if defender_llm_model else llm_client            
 
-        llm_client.wait_for_server_to_start()
-        attacker_llm_client.wait_for_server_to_start()
-        defender_llm_client.wait_for_server_to_start()
+        if server_type != "hflocal":
+            llm_client.wait_for_server_to_start()
+            attacker_llm_client.wait_for_server_to_start()
+            defender_llm_client.wait_for_server_to_start()
 
         if server_type == "ollama":
             # Ollama needs to pull the models before the client connects

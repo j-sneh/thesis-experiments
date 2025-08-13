@@ -62,7 +62,7 @@ def main():
         args.defender_llm_model = args.model
         args.defender_url = args.model_url
 
-    breakpoint()
+    # breakpoint()
     run_head_to_head_experiment(
         model_name=args.model,
         data_path=args.data_path,
