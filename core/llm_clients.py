@@ -110,13 +110,9 @@ class VLLMClient(LLMClient):
 
         if self.tool_parser:
             # request must be passed in, but it is not in use currently, so we pass in None -- this may break in the future
-            try:
                 extracted_tools = self.tool_parser.extract_tool_calls(content, None)
                 content = extracted_tools.content
                 tool_calls = [{'function': {'name': tool.function.name, 'arguments': tool.function.arguments}} for tool in extracted_tools.tool_calls]
-            except Exception as e:
-                print(f"An error occurred: {e}")
-                tool_calls = []
         
 
         response = {

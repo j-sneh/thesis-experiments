@@ -571,10 +571,21 @@ class HeadToHeadExperiment:
 
                 print(f"Attempt {attempt+1}: {percent:.2f}% selection rate ({total_count}/{total_calls} selections)")
                 # Get improvement from attacker with detailed feedback
-                improvement, new_description, new_name = self.cluster_attack_get_improvement_with_feedback(
-                    all_tools[target_tool_index], improvement_history, current_description, current_name, 
-                    question_results, percent, defended_tools
-                )
+                improvement = ''
+                new_description = None
+                new_name = None
+
+                
+                max_iters = 10
+                iteration = 0
+                while (new_description is None or new_name is None):
+                    if iteration >= max_iters:
+                        raise RuntimeError(f"Model failed to generate a valid JSON with a new description or name after {max_iters} iterations.")
+                    improvement, new_description, new_name = self.cluster_attack_get_improvement_with_feedback(
+                        all_tools[target_tool_index], improvement_history, current_description, current_name, 
+                        question_results, percent, defended_tools
+                    )
+                    iteration += 1
                 
                 # Update the target tool with new description/name
                 if new_description is not None:
@@ -586,7 +597,8 @@ class HeadToHeadExperiment:
 
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
-                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="ollama"):
+                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="ollama",
+                                model_url=None, attacker_url=None, defender_url=None):
     """
     Run an LLM tool selection experiment.
     
@@ -607,6 +619,11 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         question_start: Start index for questions in cluster-attack mode
         question_end: End index for questions in cluster-attack mode
         attack_modification_type: Type of modification for cluster-attack mode ('description', 'name', or 'both')
+        server_port: Port to use for spawning servers (if not using existing URLs)
+        server_type: Type of server to spawn ('ollama' or 'vllm')
+        model_url: URL for the main model server (if already running, skips spawning)
+        attacker_url: URL for the attacker model server (if already running, skips spawning)
+        defender_url: URL for the defender model server (if already running, skips spawning)
     """
     
     client_class = None
@@ -620,26 +637,43 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         raise ValueError(f"Invalid client: {client}")
 
     
-    # Start the servers for the LLMs
-    models = set([model_name, attacker_llm_model, defender_llm_model])
+    # Start the servers for the LLMs or use provided URLs
+    models = [model_name, attacker_llm_model, defender_llm_model]
+    provided_urls = [model_url, attacker_url, defender_url]
     
     model_processes = {}
-    if server_type == "ollama":
-        # Need to download the models if they are not already present
-        # Ollama can handle multiple models on one server
-        url, process, log_handle = spawn_server(None, server_port, server_type, output_path)
-        for model in models:
-            model_processes[model] = (url, process, log_handle)
-    else:  # vllm
-        # vllm needs separate server for each model
-        port = server_port
-        for model in models:
-            print(f"Spawning server for {model} at port {port}")
-            url, process, log_handle = spawn_server(model, port, server_type, output_path)
-            port += 1
-            model_processes[model] = (url, process, log_handle)
-
-            print(f"Spawned server for {model} at {url}")
+    models_needing_servers = []
+    
+    # First, handle models with provided URLs
+    for model, url in zip(models, provided_urls):
+        if url and url != '':
+            # Use provided URL, no server spawning needed
+            model_processes[model] = (url, None, None)
+            print(f"Using existing server for {model} at {url}")
+        elif model:
+            # Model exists but no URL provided, needs server
+            models_needing_servers.append(model)
+    
+    # Remove duplicates while preserving order
+    models_needing_servers = set(models_needing_servers)
+    
+    # Spawn servers for models that need them
+    if len(models_needing_servers) > 0:
+        if server_type == "ollama":
+            # Need to download the models if they are not already present
+            # Ollama can handle multiple models on one server
+            url, process, log_handle = spawn_server(None, server_port, server_type, output_path)
+            for model in models_needing_servers:
+                model_processes[model] = (url, process, log_handle)
+                print(f"Spawned Ollama server for {model} at {url}")
+        else:  # vllm
+            # vllm needs separate server for each model
+            for model in models_needing_servers:
+                print(f"Spawning vLLM server for {model} at port {server_port}")
+                url, process, log_handle = spawn_server(model, server_port, server_type, output_path)
+                model_processes[model] = (url, process, log_handle)
+                server_port += 1
+                print(f"Spawned vLLM server for {model} at {url}")
 
 
     try:
@@ -678,7 +712,10 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         )
         experiment.run()
     finally:
-        for process in model_processes.values():
-            # Kill the server before exiting
-            process[1].terminate()
-            process[2].close()
+        # Only terminate processes that were actually spawned (not using provided URLs)
+        for model, (url, process, log_handle) in model_processes.items():
+            if process is not None and log_handle is not None:
+                # Kill the server before exiting
+                print(f"Terminating spawned server for {model}")
+                process.terminate()
+                log_handle.close()
