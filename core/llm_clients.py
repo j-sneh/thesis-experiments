@@ -202,7 +202,8 @@ class HFLocalClient:
         # ensure pad token exists for batching/truncation
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
+        
+        # breakpoint()
         model_kwargs = {
             "torch_dtype": torch_dtype,
             "device_map": "cuda" if device == "cuda" else device,  # keeps all weights on GPU

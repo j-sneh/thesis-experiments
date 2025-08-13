@@ -55,7 +55,7 @@ def main():
         # If attack mode is enabled but no defender LLM model is provided, use the same model as the main LLM
         args.defender_llm_model = args.model
 
-    breakpoint()
+    # breakpoint()
     run_head_to_head_experiment(
         model_name=args.model,
         data_path=args.data_path,
