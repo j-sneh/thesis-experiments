@@ -63,6 +63,15 @@ python run_multiple_experiments.py --model gpt-oss:20b --cluster-id 1 10 --defen
 ```
 Phi 4 was being a bit flaky, feel free to run it last and let me know if it doesn't work
 ```bash
-python run_multiple_experiments.py --model phi4-mini-tool-prompt:3.8b-fp16 --attacker-llm-model phi4-mini:3.8b-fp16 --defender-llm-model phi4-mini:3.8b-fp16 --cluster-id 1 10 --server-port 11437
+python run_multiple_experiments.py --model phi4-mini-tool-prompt:3.8b-fp16 --attacker-llm-model phi4-mini:3.8b-fp16 --defender-llm-model phi4-mini:3.8b-fp16 --cluster-id 1 10 --defense-mechanism objective --server-port 11437
 ```
 
+You can run these with the following script:
+```bash
+./base.sh
+```
+and
+```bash
+./defend.sh
+```
+, respectively.
