@@ -51,7 +51,7 @@ def generate_output_path(model: str, cluster_id: int, tool_index: int, server_ty
     
     return str(base_dir / filename)
 
-def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None):
+def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
     data_path = "data/clusters/bias_dataset_bfcl_format.jsonl"
@@ -84,12 +84,17 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
         "--server-type", server_type,
         "--server-port", str(server_port),
         "--model-url", url,
+        "--attacker-url", url,
+        "--defender-url", url,
     ]
 
     if attacker_llm_model is not None:
         cmd.append("--attacker-llm-model")
         cmd.append(translate_model_name(attacker_llm_model, server_type))
     
+    if defender_llm_model is not None:
+        cmd.append("--defender-llm-model")
+        cmd.append(translate_model_name(defender_llm_model, server_type))
     
     print(f"\nRunning experiment for tool index {tool_index}")
     print(f"Output path: {output_path}")
@@ -113,6 +118,7 @@ def main():
     # parser.add_argument("--server-type", default="ollama", choices=["vllm", "ollama"], help="Server type")
     parser.add_argument("--server-port", type=int, default=11434, help="Starting port number for server")
     parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace or Ollama format)")
+    parser.add_argument("--defender-llm-model", default=None, help="Defender model name (HuggingFace or Ollama format)")
     parser.add_argument("--defense-mechanism", default="none", choices=["none", "objective", "reword"], help="Defense mechanism to apply to the tool description.")
     parser.add_argument("--debug", action="store_true", help="Run a small number of trials for debugging")
     parser.add_argument("--tool-index", type=int, nargs="+", help="Tool index (0-4) can either be a single number 0-4 for a single trial, or a range (2 numbers). Will be all 4 tools if not specified.")
@@ -171,6 +177,7 @@ def main():
                     server_port=args.server_port,
                     url=url,
                     attacker_llm_model=args.attacker_llm_model,
+                    defender_llm_model=args.defender_llm_model,
                     defense_mechanism=args.defense_mechanism,
                     debug=args.debug,
                     base_dir=base_dir
