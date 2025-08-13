@@ -148,9 +148,11 @@ def main():
     else:
         raise ValueError("Tool index must be a single number or a range of 2 numbers")
 
+    server_type = "ollama"
+
     # Spawn the server for the main model
-    base_dir = generate_base_dir(args.model, "ollama", args.cluster_id, args.defense_mechanism)
-    url, process, log_handle = spawn_server(args.model, args.server_port, "ollama", base_dir)
+    base_dir = generate_base_dir(args.model, server_type, args.cluster_id, args.defense_mechanism)
+    url, process, log_handle = spawn_server(args.model, args.server_port, server_type, base_dir / "PLACEHOLDER_FILE_TO_REMOVE")
     print(f"Spawned server for {args.model} at {url}")
 
     # Wait for the server to start
