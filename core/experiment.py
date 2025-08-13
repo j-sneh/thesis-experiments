@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import subprocess
 import time
+import random
 
 class ThreadSafeCounter:
     def __init__(self):
@@ -106,11 +107,11 @@ class HeadToHeadExperiment:
         except TypeError as e:
             print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response['message']['content']}")
             return_val = tool['description'] if attack_mode == 'attack' else ''
-            improvement = ''
+            improvement = 'Failed to parse the output. Reusing the previous output. Next time, I should only output JSON text and nothing else'
         except Exception as e:
             print(f"[Attacker LLM] Failed to parse attacker output: {e}\nRaw output: {response['message']['content']}")
             return_val = tool['description'] if attack_mode == 'attack' else ''
-            improvement = ''
+            improvement = 'Failed to parse the output. Reusing the previous output. Next time, I should only output JSON text and nothing else'
 
         return improvement, return_val
 
@@ -161,7 +162,7 @@ class HeadToHeadExperiment:
         # Add detailed feedback from current attempt
         feedback_info = f"OVERALL FEEDBACK: Your current modification was selected {overall_percent:.2f}% of the time.\n\n"
         feedback_info += f"Tools provided to the LLM:\n"
-        for i, tool in enumerate(tools_provided):
+        for _, tool in enumerate(tools_provided):
             tool_name = tool['function']['name']
             tool_desc = tool['function'].get('description', 'No description')
             feedback_info += f"{tool_name} - {tool_desc} - {tool['function']['parameters']}\n"
@@ -179,6 +180,9 @@ class HeadToHeadExperiment:
                     successful.append(result)
                 else:
                     unsuccessful.append(result)
+            # Randomly shuffle the lists
+            random.shuffle(successful)
+            random.shuffle(unsuccessful)
             # Take up to 5 from each, but if not enough, fill from the other
             selected_results = successful[:5] + unsuccessful[:5]
             if len(selected_results) < 10:
@@ -194,7 +198,7 @@ class HeadToHeadExperiment:
         
         messages.append({"role": "user", "content": feedback_info})
         
-        response = self.attacker_llm_client.invoke(messages, None)
+        response = self.attacker_llm_client.invoke(messages, None, temperature=0.5) # higher temperature was causing no json output
         improvement = ''
         new_description = None
         new_name = None
@@ -475,8 +479,12 @@ class HeadToHeadExperiment:
                 def run_trial(question, idx):
                     messages = question
                     
+                    # shuffle tools
+                    shuffled_tools = defended_tools.copy()
+                    random.shuffle(shuffled_tools)  
+
                     # Run the trial with all tools
-                    response = self.llm_client.invoke(messages, defended_tools)
+                    response = self.llm_client.invoke(messages, shuffled_tools)
                     
                     # Extract called tool names
                     tool_calls = []
@@ -511,7 +519,6 @@ class HeadToHeadExperiment:
                     result = {
                         "id": f"cluster-{self.data['cluster_id']}-q{self.question_start + idx}",
                         "question": messages,
-                        "tools_provided": defended_tools,
                         "called_tool_names": called_tool_names,
                         "target_tool_name": current_name,
                         "target_tool_selected": target_selected,
@@ -519,7 +526,9 @@ class HeadToHeadExperiment:
                         "attack_mode": self.attack_mode,
                         "attempt": attempt,
                         "cluster_id": self.data['cluster_id'],
-                        "target_tool_index": target_tool_index
+                        "target_tool_index": target_tool_index,
+                        "tools_provided": shuffled_tools,
+                        "original_tools": all_tools
                     }
                     
                     # Thread-safe file writing
@@ -560,11 +569,23 @@ class HeadToHeadExperiment:
                 improvement_history_file.write(json.dumps(improvement_record) + "\n")
                 improvement_history_file.flush()
 
+                print(f"Attempt {attempt+1}: {percent:.2f}% selection rate ({total_count}/{total_calls} selections)")
                 # Get improvement from attacker with detailed feedback
-                improvement, new_description, new_name = self.cluster_attack_get_improvement_with_feedback(
-                    all_tools[target_tool_index], improvement_history, current_description, current_name, 
-                    question_results, percent, defended_tools
-                )
+                improvement = ''
+                new_description = None
+                new_name = None
+
+                
+                max_iters = 10
+                iteration = 0
+                while (new_description is None or new_name is None):
+                    if iteration >= max_iters:
+                        raise RuntimeError(f"Model failed to generate a valid JSON with a new description or name after {max_iters} iterations.")
+                    improvement, new_description, new_name = self.cluster_attack_get_improvement_with_feedback(
+                        all_tools[target_tool_index], improvement_history, current_description, current_name, 
+                        question_results, percent, defended_tools
+                    )
+                    iteration += 1
                 
                 # Update the target tool with new description/name
                 if new_description is not None:
@@ -573,11 +594,11 @@ class HeadToHeadExperiment:
                     current_name = new_name
                 
                 
-                print(f"Attempt {attempt+1}: {percent:.2f}% selection rate ({total_count}/{total_calls} selections)")
 
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
-                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal"):
+                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal",
+                                model_url=None, attacker_url=None, defender_url=None):
     """
     Run an LLM tool selection experiment.
     
@@ -598,40 +619,58 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         question_start: Start index for questions in cluster-attack mode
         question_end: End index for questions in cluster-attack mode
         attack_modification_type: Type of modification for cluster-attack mode ('description', 'name', or 'both')
+        server_port: Port to use for spawning servers (if not using existing URLs)
+        server_type: Type of server to spawn ('ollama' or 'vllm')
+        model_url: URL for the main model server (if already running, skips spawning)
+        attacker_url: URL for the attacker model server (if already running, skips spawning)
+        defender_url: URL for the defender model server (if already running, skips spawning)
     """
 
     client_class = None
-    if client == "vllm":
-        client_class = VLLMClient
-    elif client == "ollama":
-        client_class = OllamaClient
-    elif client == "openai":
-        client_class = OpenAIClient
-    elif client == "hflocal":
+    # TODO: deprecate client argument entirely
+    if server_type == "hflocal":
         client_class = HFLocalClient
     else:
-        raise ValueError(f"Invalid client: {client}")
+        client_class = OpenAIClient
 
-    # Start the servers for the LLMs
-    models = set([model_name, attacker_llm_model, defender_llm_model])
+    
+    # Start the servers for the LLMs or use provided URLs
+    models = [model_name, attacker_llm_model, defender_llm_model]
+    provided_urls = [model_url, attacker_url, defender_url]
     
     model_processes = {}
-    if server_type == "ollama":
-        # Need to download the models if they are not already present
-
-        # Ollama can handle multiple models on one server
-        url, process, log_handle = spawn_server(None, server_port, server_type, output_path)
-        for model in models:
-            model_processes[model] = (url, process, log_handle)
-    elif server_type == "vllm":  # vllm
-        # vllm needs separate server for each model
-        port = server_port
-        for model in models:
-            print(f"Spawning server for {model} at port {port}")
-            url, process, log_handle = spawn_server(model, port, server_type, output_path)
-            port += 1
-            model_processes[model] = (url, process, log_handle)
-            print(f"Spawned server for {model} at {url}")
+    models_needing_servers = []
+    
+    # First, handle models with provided URLs
+    for model, url in zip(models, provided_urls):
+        if url and url != '':
+            # Use provided URL, no server spawning needed
+            model_processes[model] = (url, None, None)
+            print(f"Using existing server for {model} at {url}")
+        elif model and server_type != "hflocal":
+            # Model exists but no URL provided, needs server
+            models_needing_servers.append(model)
+    
+    # Remove duplicates while preserving order
+    models_needing_servers = set(models_needing_servers)
+    
+    # Spawn servers for models that need them
+    if len(models_needing_servers) > 0:
+        if server_type == "ollama":
+            # Need to download the models if they are not already present
+            # Ollama can handle multiple models on one server
+            url, process, log_handle = spawn_server(None, server_port, server_type, output_path)
+            for model in models_needing_servers:
+                model_processes[model] = (url, process, log_handle)
+                print(f"Spawned Ollama server for {model} at {url}")
+        elif server_type == "vllm":  # vllm
+            # vllm needs separate server for each model
+            for model in models_needing_servers:
+                print(f"Spawning vLLM server for {model} at port {server_port}")
+                url, process, log_handle = spawn_server(model, server_port, server_type, output_path)
+                model_processes[model] = (url, process, log_handle)
+                server_port += 1
+                print(f"Spawned vLLM server for {model} at {url}")
 
     try:
         # breakpoint()
@@ -651,8 +690,10 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
 
         if server_type == "ollama":
             # Ollama needs to pull the models before the client connects
-            for model in models:
-                subprocess.run([OLLAMA_PATH, "pull", model], env=os.environ, check=True)
+           # for model in models:
+           #     subprocess.run([OLLAMA_PATH, "pull", model], env=os.environ, check=True)
+           pass # for now, assume models have been pulled - this has been a source of error for me
+    # 
 
         experiment = HeadToHeadExperiment(
             llm_client=llm_client,
@@ -673,7 +714,10 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         )
         experiment.run()
     finally:
-        for process in model_processes.values():
-            # Kill the server before exiting
-            process[1].terminate()
-            process[2].close()
+        # Only terminate processes that were actually spawned (not using provided URLs)
+        for model, (url, process, log_handle) in model_processes.items():
+            if process is not None and log_handle is not None:
+                # Kill the server before exiting
+                print(f"Terminating spawned server for {model}")
+                process.terminate()
+                log_handle.close()

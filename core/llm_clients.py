@@ -110,13 +110,9 @@ class VLLMClient(LLMClient):
 
         if self.tool_parser:
             # request must be passed in, but it is not in use currently, so we pass in None -- this may break in the future
-            try:
                 extracted_tools = self.tool_parser.extract_tool_calls(content, None)
                 content = extracted_tools.content
                 tool_calls = [{'function': {'name': tool.function.name, 'arguments': tool.function.arguments}} for tool in extracted_tools.tool_calls]
-            except Exception as e:
-                print(f"An error occurred: {e}")
-                tool_calls = []
         
 
         response = {
@@ -142,7 +138,7 @@ class OpenAIClient(LLMClient):
             api_key="no key needed thus far"
         )
 
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
         """
         Invoke the OpenAI Proxy model with a list of messages and a list of tools.
         """
@@ -151,8 +147,8 @@ class OpenAIClient(LLMClient):
                 model=self.model,
                 messages=messages,
                 tools=tools,
+                temperature=temperature,
             ).model_dump()
-            # print(response)
             return response['choices'][0]
         except Exception as e:
             print(f"An error occurred: {e}")

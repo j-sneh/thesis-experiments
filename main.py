@@ -28,6 +28,11 @@ def main():
     parser.add_argument("--server-port", type=int, default=8000, help="Port to use for the server.")
     parser.add_argument("--server-type", type=str, choices=["ollama", "vllm", "hflocal"], default="ollama", help="Type of server to use: 'ollama' or 'vllm'.")
     
+    # URL args (if provided, skip server spawning for that model)
+    parser.add_argument("--model-url", type=str, help="URL for the main model server (if already running).")
+    parser.add_argument("--attacker-url", type=str, help="URL for the attacker model server (if already running).")
+    parser.add_argument("--defender-url", type=str, help="URL for the defender model server (if already running).")
+    
     args = parser.parse_args()
 
     # Validate cluster attack parameters
@@ -50,10 +55,12 @@ def main():
     if args.attack_mode != "no-attack" and args.attacker_llm_model is None:
         # If attack mode is enabled but no attacker LLM model is provided, use the same model as the main LLM
         args.attacker_llm_model = args.model
+        args.attacker_url = args.model_url
 
     if args.attack_mode not in ["none", "noop"] and args.defender_llm_model is None:
         # If attack mode is enabled but no defender LLM model is provided, use the same model as the main LLM
         args.defender_llm_model = args.model
+        args.defender_url = args.model_url
 
     # breakpoint()
     run_head_to_head_experiment(
@@ -74,7 +81,10 @@ def main():
         question_end=args.question_end,
         attack_modification_type=args.attack_modification_type,
         server_port=args.server_port,
-        server_type=args.server_type
+        server_type=args.server_type,
+        model_url=args.model_url,
+        attacker_url=args.attacker_url,
+        defender_url=args.defender_url
     )
 
 if __name__ == "__main__":
