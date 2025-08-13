@@ -678,7 +678,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
                 print(f"Spawned vLLM server for {model} at {url}")
 
     try:
-        breakpoint()
+        # breakpoint()
         if server_type != "hflocal":
             llm_client = client_class(model_name, base_url=model_processes[model_name][0])
             attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
