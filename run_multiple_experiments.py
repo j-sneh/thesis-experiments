@@ -51,7 +51,7 @@ def generate_output_path(model: str, cluster_id: int, tool_index: int, server_ty
     
     return str(base_dir / filename)
 
-def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None):
+def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None, seed: int = 2026):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
     data_path = "data/clusters/bias_dataset_bfcl_format.jsonl"
@@ -83,6 +83,7 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
         "--output-path", output_path,
         "--server-type", server_type,
         "--server-port", str(server_port),
+        "--seed", str(seed),
     ]
 
     if attacker_llm_model is not None:
@@ -130,6 +131,7 @@ def main():
     parser.add_argument("--defense-mechanism", default="none", choices=["none", "objective", "reword"], help="Defense mechanism to apply to the tool description.")
     parser.add_argument("--debug", action="store_true", help="Run a small number of trials for debugging")
     parser.add_argument("--tool-index", type=int, nargs="+", help="Tool index (0-4) can either be a single number 0-4 for a single trial, or a range (2 numbers). Will be all 4 tools if not specified.")
+    parser.add_argument("--seed", type=int, default=2026, help="Random seed for reproducible results (default: 2026).")
     args = parser.parse_args()
 
     cluster_ids = None
@@ -196,7 +198,8 @@ def main():
                     defense_mechanism=args.defense_mechanism,
                     debug=args.debug,
                     base_dir=base_dir,
-                    url=url if server_type == "ollama" else None
+                    url=url if server_type == "ollama" else None,
+                    seed=args.seed
                 )
                 if not success:
                     print(f"Stopping after failure on tool index {tool_index}")

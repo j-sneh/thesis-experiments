@@ -29,7 +29,7 @@ class ThreadSafeCounter:
 class HeadToHeadExperiment:
     def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None, 
                  cluster_id: Optional[int] = None, target_tool_index: Optional[int] = None, question_start: Optional[int] = None, question_end: Optional[int] = None, 
-                 attack_modification_type: str = "both"):
+                 attack_modification_type: str = "both", seed: int = 2026):
         self.llm_client = llm_client
         self.output_path = output_path
         self.modification = modification
@@ -41,10 +41,10 @@ class HeadToHeadExperiment:
         self.max_attempts = max_attempts
         self.attacker_prompt_path = None
         self.attack_modification_type = attack_modification_type  # "description", "name", or "both"
+        self.seed = seed
 
         self.question_start = question_start
         self.question_end = question_end
-
         # Load data based on attack mode
         if attack_mode == "cluster-attack":
             if cluster_id is None or target_tool_index is None or question_start is None or question_end is None:
@@ -92,7 +92,7 @@ class HeadToHeadExperiment:
             messages.append({"role": "assistant", "content": json.dumps({'improvement': prev['improvement'], attack_mode_string: prev[attack_mode_string]})})
             messages.append({"role": "user", "content": f"FEEDBACK: Your last {attack_mode_string} was selected {prev['percent']}% of the time."})
 
-        response = self.attacker_llm_client.invoke(messages, None)
+        response = self.attacker_llm_client.invoke(messages, None, seed=self.seed)
         if response is None:
             raise ValueError(f"[Attacker LLM] No response from attacker LLM")
         improvement = ''
@@ -198,7 +198,7 @@ class HeadToHeadExperiment:
         
         messages.append({"role": "user", "content": feedback_info})
         
-        response = self.attacker_llm_client.invoke(messages, None, temperature=0.5) # higher temperature was causing no json output
+        response = self.attacker_llm_client.invoke(messages, None, temperature=0.5, seed=self.seed) # higher temperature was causing no json output
         improvement = ''
         new_description = None
         new_name = None
@@ -270,7 +270,7 @@ class HeadToHeadExperiment:
         for trial_type in ["original-first", "biased-first"]:
             trial_tools = defended_tools if trial_type == "original-first" else defended_tools[::-1]
             
-            response = self.llm_client.invoke(messages, trial_tools)
+            response = self.llm_client.invoke(messages, trial_tools, seed=self.seed)
             
             called_tool_names = [r['function']['name'] for r in response['message']['tool_calls']] if response and 'message' in response and response['message']['tool_calls'] else []
             
@@ -477,6 +477,8 @@ class HeadToHeadExperiment:
                 file_lock = threading.Lock()
 
                 def run_trial(question, idx):
+                    # random seed for each trial
+                    random.seed(self.seed + idx)
                     messages = question
                     
                     # shuffle tools
@@ -484,7 +486,7 @@ class HeadToHeadExperiment:
                     random.shuffle(shuffled_tools)  
 
                     # Run the trial with all tools
-                    response = self.llm_client.invoke(messages, shuffled_tools)
+                    response = self.llm_client.invoke(messages, shuffled_tools, seed=self.seed, temperature=0.0)
                     
                     # Extract called tool names
                     tool_calls = []
@@ -570,6 +572,11 @@ class HeadToHeadExperiment:
                 improvement_history_file.flush()
 
                 print(f"Attempt {attempt+1}: {percent:.2f}% selection rate ({total_count}/{total_calls} selections)")
+
+                if attempt == self.max_attempts - 1:
+                    # no improvement if last attempt
+                    break
+                
                 # Get improvement from attacker with detailed feedback
                 improvement = ''
                 new_description = None
@@ -598,7 +605,7 @@ class HeadToHeadExperiment:
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
                                 cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal",
-                                model_url=None, attacker_url=None, defender_url=None):
+                                model_url=None, attacker_url=None, defender_url=None, seed=2026):
     """
     Run an LLM tool selection experiment.
     
@@ -624,6 +631,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         model_url: URL for the main model server (if already running, skips spawning)
         attacker_url: URL for the attacker model server (if already running, skips spawning)
         defender_url: URL for the defender model server (if already running, skips spawning)
+        seed: Random seed for reproducible results
     """
 
     client_class = None
