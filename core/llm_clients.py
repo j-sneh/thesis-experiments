@@ -14,7 +14,7 @@ class LLMClient(ABC):
     """Abstract base class for LLM clients."""
 
     @abstractmethod
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
         """
         Invoke the LLM with a list of messages and a list of tools.
 
@@ -38,7 +38,7 @@ class OllamaClient(LLMClient):
         self.base_url = base_url
         self.client = ollama.Client(host=base_url)
 
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
         """
         Invoke the Ollama model with a list of messages and a list of tools.
         """
@@ -79,7 +79,7 @@ class VLLMClient(LLMClient):
             self.tool_parser = None
             self.reasoning_parser = None
 
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
         """
         Invoke the VLLM model with a list of messages and a list of tools.
         """
