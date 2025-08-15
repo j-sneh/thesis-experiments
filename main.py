@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--defender-llm-model", type=str, help="Model to use for defender mode.")
     parser.add_argument("--max-attempts", type=int, default=5, help="Maximum number of attack attempts.")
     parser.add_argument("--dataset-size", type=int, help="Number of items to use from the dataset (default: use all items).")
-    parser.add_argument("--client", type=str, choices=["vllm", "ollama", "openai"], default="openai", help="Inference client to use: 'vllm', 'ollama', or 'openai'.")
+    parser.add_argument("--client", type=str, choices=["vllm", "ollama", "openai", "hflocal"], default="hflocal", help="Inference client to use: 'vllm', 'ollama', or 'openai'.")
     
     
     # Cluster attack specific arguments
@@ -26,7 +26,7 @@ def main():
 
     # Server args
     parser.add_argument("--server-port", type=int, default=8000, help="Port to use for the server.")
-    parser.add_argument("--server-type", type=str, choices=["ollama", "vllm"], default="vllm", help="Type of server to use: 'ollama' or 'vllm'.")
+    parser.add_argument("--server-type", type=str, choices=["ollama", "vllm", "hflocal"], default="ollama", help="Type of server to use: 'ollama' or 'vllm'.")
     
     # URL args (if provided, skip server spawning for that model)
     parser.add_argument("--model-url", type=str, help="URL for the main model server (if already running).")
@@ -62,6 +62,7 @@ def main():
         args.defender_llm_model = args.model
         args.defender_url = args.model_url
 
+    # breakpoint()
     run_head_to_head_experiment(
         model_name=args.model,
         data_path=args.data_path,
