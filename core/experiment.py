@@ -29,7 +29,7 @@ class ThreadSafeCounter:
 class HeadToHeadExperiment:
     def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None, 
                  cluster_id: Optional[int] = None, target_tool_index: Optional[int] = None, question_start: Optional[int] = None, question_end: Optional[int] = None, 
-                 attack_modification_type: str = "both", seed: int = 2026):
+                 attack_modification_type: str = "both", seed: int = 42):
         self.llm_client = llm_client
         self.output_path = output_path
         self.modification = modification
@@ -611,12 +611,11 @@ class HeadToHeadExperiment:
                 if new_name is not None:
                     current_name = new_name
                 
-                
 
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
                                 cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal",
-                                model_url=None, attacker_url=None, defender_url=None, seed=2026):
+                                model_url=None, attacker_url=None, defender_url=None, seed=42):
     """
     Run an LLM tool selection experiment.
     

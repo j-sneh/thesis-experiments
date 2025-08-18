@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--max-attempts", type=int, default=5, help="Maximum number of attack attempts.")
     parser.add_argument("--dataset-size", type=int, help="Number of items to use from the dataset (default: use all items).")
     parser.add_argument("--client", type=str, choices=["vllm", "ollama", "openai", "hflocal"], default="hflocal", help="Inference client to use: 'vllm', 'ollama', or 'openai'.")
-    parser.add_argument("--seed", type=int, default=2026, help="Random seed for reproducible results (default: 2026).")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible results (default: 42).")
     
     
     # Cluster attack specific arguments
