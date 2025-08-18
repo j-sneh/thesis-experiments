@@ -85,10 +85,11 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
     """
 
     print(f"Spawning {server_type} server on port {port}")
-    # Create log file path with output identifier
-    output_identifier = os.path.splitext(os.path.basename(output_file_path))[0] if output_file_path else "default"
-    log_file = f"{server_type}_server_{port}_{output_identifier}.log"
+    log_file = f"{os.path.dirname(output_file_path)}/{server_type}_server_{port}.log"
     print(f"Logging server output to: {log_file}")
+    
+    # Ensure the directory exists before creating the log file
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
     
     # Open log file and redirect both stdout and stderr to it
     log_handle = open(log_file, 'w', encoding="utf-8")

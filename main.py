@@ -5,16 +5,17 @@ from core.experiment import HeadToHeadExperiment, run_head_to_head_experiment
 def main():
     parser = argparse.ArgumentParser(description="Run LLM tool selection experiment.")
     parser.add_argument("--model", type=str, default="llama3.2", help="Model to use.")
-    parser.add_argument("--data-path", type=str, default="data/BFCL_v3_simple.jsonl", help="Path to the data file.")
+    parser.add_argument("--data-path", type=str, default="data/clusters/bias_dataset_bfcl_format.jsonl", help="Path to the data file.")
     parser.add_argument("--output-path", type=str, default="results", help="Path to save the results.")
-    parser.add_argument("--modification", type=str, default="assertive_cue", help="Modification to apply to the tool description.", choices=["assertive_cue", "active_maintenance", "none", "noop"])
-    parser.add_argument("--defense-mechanism", choices=["objective", "reword", "none", "noop"], type=str, default="objective", help="Defense mechanism to apply to the tool description.")
+    parser.add_argument("--modification", type=str, default="none", help="Modification to apply to the tool description.", choices=["assertive_cue", "active_maintenance", "none", "noop"])
+    parser.add_argument("--defense-mechanism", choices=["objective", "reword", "none", "noop"], type=str, default="none", help="Defense mechanism to apply to the tool description.")
     parser.add_argument("--attack-mode", type=str, choices=["attack", "suffix-attack", "cluster-attack", "no-attack"], default="no-attack", help="Attack mode to use: 'attack', 'suffix-attack', 'cluster-attack', or 'no-attack'.")
     parser.add_argument("--attacker-llm-model", type=str, help="Model to use for attacker mode.")
     parser.add_argument("--defender-llm-model", type=str, help="Model to use for defender mode.")
     parser.add_argument("--max-attempts", type=int, default=5, help="Maximum number of attack attempts.")
     parser.add_argument("--dataset-size", type=int, help="Number of items to use from the dataset (default: use all items).")
-    parser.add_argument("--client", type=str, choices=["vllm", "ollama", "openai"], default="openai", help="Inference client to use: 'vllm', 'ollama', or 'openai'.")
+    parser.add_argument("--client", type=str, choices=["vllm", "ollama", "openai", "hflocal"], default="hflocal", help="Inference client to use: 'vllm', 'ollama', or 'openai'.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible results (default: 42).")
     
     
     # Cluster attack specific arguments
@@ -23,10 +24,17 @@ def main():
     parser.add_argument("--question-start", type=int, help="Start index for questions in cluster-attack mode.")
     parser.add_argument("--question-end", type=int, help="End index for questions in cluster-attack mode. (exclusive)")
     parser.add_argument("--attack-modification-type", type=str, choices=["description", "name", "both"], default="both", help="Type of modification for cluster-attack mode: 'description', 'name', or 'both'.")
+    
+    # Evaluation mode arguments
+    parser.add_argument("--eval-mode", action="store_true", help="Enable evaluation mode (sets max-attempts to 1 and uses predetermined tool name/description).")
+    parser.add_argument("--eval-name", type=str, help="Predetermined tool name for evaluation mode.")
+    parser.add_argument("--eval-description", type=str, help="Predetermined tool description for evaluation mode.")
+    parser.add_argument("--eval-config", type=str, help="Path to JSON/JSONL file containing predetermined tool configurations.")
+    parser.add_argument("--eval-attempt", type=int, help="Specific attempt number to use from eval-config file (if not specified, uses highest percentage).")
 
     # Server args
     parser.add_argument("--server-port", type=int, default=8000, help="Port to use for the server.")
-    parser.add_argument("--server-type", type=str, choices=["ollama", "vllm"], default="vllm", help="Type of server to use: 'ollama' or 'vllm'.")
+    parser.add_argument("--server-type", type=str, choices=["ollama", "vllm", "hflocal"], default="ollama", help="Type of server to use: 'ollama' or 'vllm'.")
     
     # URL args (if provided, skip server spawning for that model)
     parser.add_argument("--model-url", type=str, help="URL for the main model server (if already running).")
@@ -52,6 +60,21 @@ def main():
         if args.question_end <= args.question_start:
             parser.error("--question-end must be greater than --question-start")
 
+    # Validate evaluation mode parameters
+    if args.eval_mode:
+        if args.attack_mode != "cluster-attack":
+            parser.error("--eval-mode can only be used with --attack-mode cluster-attack")
+        
+        # Check that only one method of specifying eval config is used
+        manual_specified = args.eval_name is not None or args.eval_description is not None
+        config_specified = args.eval_config is not None
+        
+        if manual_specified and config_specified:
+            parser.error("Cannot specify both manual eval parameters (--eval-name/--eval-description) and --eval-config")
+        
+        # Force max_attempts to 1 for evaluation mode
+        args.max_attempts = 1
+
     if args.attack_mode != "no-attack" and args.attacker_llm_model is None:
         # If attack mode is enabled but no attacker LLM model is provided, use the same model as the main LLM
         args.attacker_llm_model = args.model
@@ -62,6 +85,7 @@ def main():
         args.defender_llm_model = args.model
         args.defender_url = args.model_url
 
+    # breakpoint()
     run_head_to_head_experiment(
         model_name=args.model,
         data_path=args.data_path,
@@ -83,7 +107,13 @@ def main():
         server_type=args.server_type,
         model_url=args.model_url,
         attacker_url=args.attacker_url,
-        defender_url=args.defender_url
+        defender_url=args.defender_url,
+        seed=args.seed,
+        eval_mode=args.eval_mode,
+        eval_name=args.eval_name,
+        eval_description=args.eval_description,
+        eval_config=args.eval_config,
+        eval_attempt=args.eval_attempt
     )
 
 if __name__ == "__main__":

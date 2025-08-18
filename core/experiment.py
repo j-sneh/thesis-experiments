@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from typing import Optional, Tuple
 from core.utils import load_data, load_cluster_data, spawn_server, OLLAMA_PATH, parse_json_inside_string
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
-from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient
+from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient, HFLocalClient
 from tqdm import tqdm
 import json
 import copy
@@ -29,7 +29,7 @@ class ThreadSafeCounter:
 class HeadToHeadExperiment:
     def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None, 
                  cluster_id: Optional[int] = None, target_tool_index: Optional[int] = None, question_start: Optional[int] = None, question_end: Optional[int] = None, 
-                 attack_modification_type: str = "both"):
+                 attack_modification_type: str = "both", seed: int = 42, eval_mode: bool = False, eval_name: Optional[str] = None, eval_description: Optional[str] = None, eval_config: Optional[str] = None, eval_attempt: Optional[int] = None):
         self.llm_client = llm_client
         self.output_path = output_path
         self.modification = modification
@@ -41,10 +41,22 @@ class HeadToHeadExperiment:
         self.max_attempts = max_attempts
         self.attacker_prompt_path = None
         self.attack_modification_type = attack_modification_type  # "description", "name", or "both"
+        self.seed = seed
+        
+        # Evaluation mode parameters
+        self.eval_mode = eval_mode
+        self.eval_name = eval_name
+        self.eval_description = eval_description
+        self.eval_config = eval_config
+        self.eval_attempt = eval_attempt
 
         self.question_start = question_start
         self.question_end = question_end
-
+        
+        # Parse evaluation configuration if provided
+        if self.eval_mode and self.eval_config:
+            self.eval_name, self.eval_description = self._parse_eval_config()
+        
         # Load data based on attack mode
         if attack_mode == "cluster-attack":
             if cluster_id is None or target_tool_index is None or question_start is None or question_end is None:
@@ -65,6 +77,75 @@ class HeadToHeadExperiment:
                 self.attacker_prompt_path = None
             else:
                 raise ValueError(f"Invalid attack mode: {attack_mode}")
+
+    def _parse_eval_config(self) -> Tuple[str, str]:
+        """Parse evaluation configuration from JSON/JSONL file."""
+        import os
+        
+        if not os.path.exists(self.eval_config):
+            raise FileNotFoundError(f"Evaluation config file not found: {self.eval_config}")
+        
+        configs = []
+        try:
+            with open(self.eval_config, 'r', encoding='utf-8') as f:
+                if self.eval_config.endswith('.jsonl'):
+                    # JSONL format - one JSON object per line
+                    for line_num, line in enumerate(f, 1):
+                        line = line.strip()
+                        if line:
+                            try:
+                                config = json.loads(line)
+                                configs.append(config)
+                            except json.JSONDecodeError as e:
+                                raise ValueError(f"Invalid JSON on line {line_num} in {self.eval_config}: {e}")
+                else:
+                    # Single JSON format
+                    try:
+                        config = json.load(f)
+                        if isinstance(config, list):
+                            configs = config
+                        else:
+                            configs = [config]
+                    except json.JSONDecodeError as e:
+                        raise ValueError(f"Invalid JSON in {self.eval_config}: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Error reading evaluation config file {self.eval_config}: {e}")
+        
+        if not configs:
+            raise ValueError(f"No configurations found in {self.eval_config}")
+        
+        # Select configuration based on criteria
+        selected_config = None
+        if self.eval_attempt is not None:
+            # Select by specific attempt number
+            for config in configs:
+                if config.get('attempt') == self.eval_attempt:
+                    selected_config = config
+                    break
+            if selected_config is None:
+                raise ValueError(f"No configuration found with attempt number {self.eval_attempt} in {self.eval_config}")
+        else:
+            # Select by highest percentage
+            best_config = None
+            best_percent = -1
+            for config in configs:
+                percent = config.get('percent', 0)
+                if percent > best_percent:
+                    best_percent = percent
+                    best_config = config
+            selected_config = best_config
+        
+        if selected_config is None:
+            raise ValueError(f"No valid configuration found in {self.eval_config}")
+        
+        # Extract name and description
+        name = selected_config.get('name')
+        description = selected_config.get('description')
+        
+        if name is None or description is None:
+            raise ValueError(f"Selected configuration missing 'name' or 'description' fields: {selected_config}")
+        
+        return name, description
 
     def attack_get_improvement(self, tool: Dict[str, Any], improvement_history: list, attack_mode: str) -> Tuple[str, str]:
         if self.attacker_llm_client is None:
@@ -92,7 +173,7 @@ class HeadToHeadExperiment:
             messages.append({"role": "assistant", "content": json.dumps({'improvement': prev['improvement'], attack_mode_string: prev[attack_mode_string]})})
             messages.append({"role": "user", "content": f"FEEDBACK: Your last {attack_mode_string} was selected {prev['percent']}% of the time."})
 
-        response = self.attacker_llm_client.invoke(messages, None)
+        response = self.attacker_llm_client.invoke(messages, None, seed=self.seed)
         if response is None:
             raise ValueError(f"[Attacker LLM] No response from attacker LLM")
         improvement = ''
@@ -198,7 +279,21 @@ class HeadToHeadExperiment:
         
         messages.append({"role": "user", "content": feedback_info})
         
-        response = self.attacker_llm_client.invoke(messages, None, temperature=0.5) # higher temperature was causing no json output
+        # DEBUG: Save the full attacker prompt to debug file
+        debug_file_path = f"{self.output_path}-attacker_prompt_debug.txt"
+        with open(debug_file_path, "a", encoding="utf-8") as debug_file:
+            debug_prompt = "\n" + "="*80 + "\n"
+            debug_prompt += f"ATTACKER PROMPT DEBUG - Attempt {len(improvement_history)}\n"
+            debug_prompt += "="*80 + "\n"
+            for i, msg in enumerate(messages):
+                debug_prompt += f"Message {i+1} ({msg['role']}):\n"
+                debug_prompt += f"{msg['content']}\n"
+                debug_prompt += "-"*40 + "\n"
+            debug_prompt += "="*80 + "\n"
+            debug_file.write(debug_prompt)
+            debug_file.flush()
+        
+        response = self.attacker_llm_client.invoke(messages, None, temperature=0.5, seed=self.seed) # higher temperature was causing no json output
         improvement = ''
         new_description = None
         new_name = None
@@ -270,7 +365,7 @@ class HeadToHeadExperiment:
         for trial_type in ["original-first", "biased-first"]:
             trial_tools = defended_tools if trial_type == "original-first" else defended_tools[::-1]
             
-            response = self.llm_client.invoke(messages, trial_tools)
+            response = self.llm_client.invoke(messages, trial_tools, seed=self.seed)
             
             called_tool_names = [r['function']['name'] for r in response['message']['tool_calls']] if response and 'message' in response and response['message']['tool_calls'] else []
             
@@ -456,8 +551,25 @@ class HeadToHeadExperiment:
             target_tool_index = self.data['target_tool_index']
             improvement_history = []
             improvement = 'This is the original tool'
+
+
             current_description = all_tools[target_tool_index].get('description', '')
             current_name = all_tools[target_tool_index]['name']
+            
+            # Repl
+            if self.eval_mode:
+                # Use predetermined values from evaluation mode
+                current_description = self.eval_description if self.eval_description is not None else current_description
+                current_name = self.eval_name if self.eval_name is not None else current_name
+                
+                # Apply modification to the predetermined description if specified
+                if self.modification and self.modification not in ['none', 'noop']:
+                    temp_tool = {'description': current_description}
+                    modified_tool = modify_tool_description(temp_tool, self.modification)
+                    current_description = modified_tool['description']
+                
+                improvement = 'Evaluation mode: using predetermined tool configuration'
+
             
             for attempt in range(self.max_attempts):
                 # Create modified tools list with the updated target tool
@@ -477,6 +589,8 @@ class HeadToHeadExperiment:
                 file_lock = threading.Lock()
 
                 def run_trial(question, idx):
+                    # random seed for each trial
+                    random.seed(self.seed + attempt + idx)
                     messages = question
                     
                     # shuffle tools
@@ -484,7 +598,7 @@ class HeadToHeadExperiment:
                     random.shuffle(shuffled_tools)  
 
                     # Run the trial with all tools
-                    response = self.llm_client.invoke(messages, shuffled_tools)
+                    response = self.llm_client.invoke(messages, shuffled_tools, seed=self.seed, temperature=0.0)
                     
                     # Extract called tool names
                     tool_calls = []
@@ -545,9 +659,6 @@ class HeadToHeadExperiment:
                 # Get final counts after all threads complete
                 total_count = selection_counter.value
                 total_calls = calls_counter.value
-                    
-                
-                output_file.flush()
                 # Calculate overall percentage
                 percent = 100.0 * total_count / total_calls if total_calls > 0 else 0.0
                 
@@ -570,6 +681,11 @@ class HeadToHeadExperiment:
                 improvement_history_file.flush()
 
                 print(f"Attempt {attempt+1}: {percent:.2f}% selection rate ({total_count}/{total_calls} selections)")
+
+                if attempt == self.max_attempts - 1:
+                    # no improvement if last attempt
+                    break
+                
                 # Get improvement from attacker with detailed feedback
                 improvement = ''
                 new_description = None
@@ -593,12 +709,11 @@ class HeadToHeadExperiment:
                 if new_name is not None:
                     current_name = new_name
                 
-                
 
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
-                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="ollama",
-                                model_url=None, attacker_url=None, defender_url=None):
+                                cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal",
+                                model_url=None, attacker_url=None, defender_url=None, seed=42, eval_mode=False, eval_name=None, eval_description=None, eval_config=None, eval_attempt=None):
     """
     Run an LLM tool selection experiment.
     
@@ -624,17 +739,15 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         model_url: URL for the main model server (if already running, skips spawning)
         attacker_url: URL for the attacker model server (if already running, skips spawning)
         defender_url: URL for the defender model server (if already running, skips spawning)
+        seed: Random seed for reproducible results
     """
-    
+
     client_class = None
-    if client == "vllm":
-        client_class = VLLMClient
-    elif client == "ollama":
-        client_class = OllamaClient
-    elif client == "openai":
-        client_class = OpenAIClient
+    # TODO: deprecate client argument entirely
+    if server_type == "hflocal":
+        client_class = HFLocalClient
     else:
-        raise ValueError(f"Invalid client: {client}")
+        client_class = OpenAIClient
 
     
     # Start the servers for the LLMs or use provided URLs
@@ -650,7 +763,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             # Use provided URL, no server spawning needed
             model_processes[model] = (url, None, None)
             print(f"Using existing server for {model} at {url}")
-        elif model:
+        elif model and server_type != "hflocal":
             # Model exists but no URL provided, needs server
             models_needing_servers.append(model)
     
@@ -666,7 +779,7 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             for model in models_needing_servers:
                 model_processes[model] = (url, process, log_handle)
                 print(f"Spawned Ollama server for {model} at {url}")
-        else:  # vllm
+        elif server_type == "vllm":  # vllm
             # vllm needs separate server for each model
             for model in models_needing_servers:
                 print(f"Spawning vLLM server for {model} at port {server_port}")
@@ -675,16 +788,21 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
                 server_port += 1
                 print(f"Spawned vLLM server for {model} at {url}")
 
-
     try:
-        llm_client = client_class(model_name, base_url=model_processes[model_name][0])
-        attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
-        defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client
+        # breakpoint()
+        if server_type != "hflocal":
+            llm_client = client_class(model_name, base_url=model_processes[model_name][0])
+            attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
+            defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client
+        else:
+            llm_client = client_class(model_name, None)
+            attacker_llm_client = client_class(attacker_llm_model, base_url=None) if attacker_llm_model else llm_client     
+            defender_llm_client = client_class(defender_llm_model, base_url=None) if defender_llm_model else llm_client            
 
-
-        llm_client.wait_for_server_to_start()
-        attacker_llm_client.wait_for_server_to_start()
-        defender_llm_client.wait_for_server_to_start()
+        if server_type != "hflocal":
+            llm_client.wait_for_server_to_start()
+            attacker_llm_client.wait_for_server_to_start()
+            defender_llm_client.wait_for_server_to_start()
 
         if server_type == "ollama":
             # Ollama needs to pull the models before the client connects
@@ -708,7 +826,13 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             target_tool_index=target_tool_index,
             question_start=question_start,
             question_end=question_end,
-            attack_modification_type=attack_modification_type
+            attack_modification_type=attack_modification_type,
+            seed=seed,
+            eval_mode=eval_mode,
+            eval_name=eval_name,
+            eval_description=eval_description,
+            eval_config=eval_config,
+            eval_attempt=eval_attempt
         )
         experiment.run()
     finally:
