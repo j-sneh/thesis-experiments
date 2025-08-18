@@ -29,7 +29,7 @@ class ThreadSafeCounter:
 class HeadToHeadExperiment:
     def __init__(self, llm_client: LLMClient, attacker_llm_client: LLMClient, defender_llm_client:LLMClient, data_path: str, output_path: str, modification: str, defense_mechanism: str, attack_mode: str = "no-attack", max_attempts: int = 5, dataset_size: Optional[int] = None, 
                  cluster_id: Optional[int] = None, target_tool_index: Optional[int] = None, question_start: Optional[int] = None, question_end: Optional[int] = None, 
-                 attack_modification_type: str = "both", seed: int = 42):
+                 attack_modification_type: str = "both", seed: int = 42, eval_mode: bool = False, eval_name: Optional[str] = None, eval_description: Optional[str] = None, eval_config: Optional[str] = None, eval_attempt: Optional[int] = None):
         self.llm_client = llm_client
         self.output_path = output_path
         self.modification = modification
@@ -42,9 +42,21 @@ class HeadToHeadExperiment:
         self.attacker_prompt_path = None
         self.attack_modification_type = attack_modification_type  # "description", "name", or "both"
         self.seed = seed
+        
+        # Evaluation mode parameters
+        self.eval_mode = eval_mode
+        self.eval_name = eval_name
+        self.eval_description = eval_description
+        self.eval_config = eval_config
+        self.eval_attempt = eval_attempt
 
         self.question_start = question_start
         self.question_end = question_end
+        
+        # Parse evaluation configuration if provided
+        if self.eval_mode and self.eval_config:
+            self.eval_name, self.eval_description = self._parse_eval_config()
+        
         # Load data based on attack mode
         if attack_mode == "cluster-attack":
             if cluster_id is None or target_tool_index is None or question_start is None or question_end is None:
@@ -65,6 +77,75 @@ class HeadToHeadExperiment:
                 self.attacker_prompt_path = None
             else:
                 raise ValueError(f"Invalid attack mode: {attack_mode}")
+
+    def _parse_eval_config(self) -> Tuple[str, str]:
+        """Parse evaluation configuration from JSON/JSONL file."""
+        import os
+        
+        if not os.path.exists(self.eval_config):
+            raise FileNotFoundError(f"Evaluation config file not found: {self.eval_config}")
+        
+        configs = []
+        try:
+            with open(self.eval_config, 'r', encoding='utf-8') as f:
+                if self.eval_config.endswith('.jsonl'):
+                    # JSONL format - one JSON object per line
+                    for line_num, line in enumerate(f, 1):
+                        line = line.strip()
+                        if line:
+                            try:
+                                config = json.loads(line)
+                                configs.append(config)
+                            except json.JSONDecodeError as e:
+                                raise ValueError(f"Invalid JSON on line {line_num} in {self.eval_config}: {e}")
+                else:
+                    # Single JSON format
+                    try:
+                        config = json.load(f)
+                        if isinstance(config, list):
+                            configs = config
+                        else:
+                            configs = [config]
+                    except json.JSONDecodeError as e:
+                        raise ValueError(f"Invalid JSON in {self.eval_config}: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Error reading evaluation config file {self.eval_config}: {e}")
+        
+        if not configs:
+            raise ValueError(f"No configurations found in {self.eval_config}")
+        
+        # Select configuration based on criteria
+        selected_config = None
+        if self.eval_attempt is not None:
+            # Select by specific attempt number
+            for config in configs:
+                if config.get('attempt') == self.eval_attempt:
+                    selected_config = config
+                    break
+            if selected_config is None:
+                raise ValueError(f"No configuration found with attempt number {self.eval_attempt} in {self.eval_config}")
+        else:
+            # Select by highest percentage
+            best_config = None
+            best_percent = -1
+            for config in configs:
+                percent = config.get('percent', 0)
+                if percent > best_percent:
+                    best_percent = percent
+                    best_config = config
+            selected_config = best_config
+        
+        if selected_config is None:
+            raise ValueError(f"No valid configuration found in {self.eval_config}")
+        
+        # Extract name and description
+        name = selected_config.get('name')
+        description = selected_config.get('description')
+        
+        if name is None or description is None:
+            raise ValueError(f"Selected configuration missing 'name' or 'description' fields: {selected_config}")
+        
+        return name, description
 
     def attack_get_improvement(self, tool: Dict[str, Any], improvement_history: list, attack_mode: str) -> Tuple[str, str]:
         if self.attacker_llm_client is None:
@@ -470,8 +551,25 @@ class HeadToHeadExperiment:
             target_tool_index = self.data['target_tool_index']
             improvement_history = []
             improvement = 'This is the original tool'
+
+
             current_description = all_tools[target_tool_index].get('description', '')
             current_name = all_tools[target_tool_index]['name']
+            
+            # Repl
+            if self.eval_mode:
+                # Use predetermined values from evaluation mode
+                current_description = self.eval_description if self.eval_description is not None else current_description
+                current_name = self.eval_name if self.eval_name is not None else current_name
+                
+                # Apply modification to the predetermined description if specified
+                if self.modification and self.modification not in ['none', 'noop']:
+                    temp_tool = {'description': current_description}
+                    modified_tool = modify_tool_description(temp_tool, self.modification)
+                    current_description = modified_tool['description']
+                
+                improvement = 'Evaluation mode: using predetermined tool configuration'
+
             
             for attempt in range(self.max_attempts):
                 # Create modified tools list with the updated target tool
@@ -615,7 +713,7 @@ class HeadToHeadExperiment:
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
                                 cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal",
-                                model_url=None, attacker_url=None, defender_url=None, seed=42):
+                                model_url=None, attacker_url=None, defender_url=None, seed=42, eval_mode=False, eval_name=None, eval_description=None, eval_config=None, eval_attempt=None):
     """
     Run an LLM tool selection experiment.
     
@@ -728,7 +826,13 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             target_tool_index=target_tool_index,
             question_start=question_start,
             question_end=question_end,
-            attack_modification_type=attack_modification_type
+            attack_modification_type=attack_modification_type,
+            seed=seed,
+            eval_mode=eval_mode,
+            eval_name=eval_name,
+            eval_description=eval_description,
+            eval_config=eval_config,
+            eval_attempt=eval_attempt
         )
         experiment.run()
     finally:
