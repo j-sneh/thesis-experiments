@@ -33,7 +33,7 @@ class ExperimentConfig:
     eval_config: Optional[str] = None
     eval_attempt: Optional[int] = None
     modification: Optional[str] = None
-
+    api_key: Optional[str] = None
 # Thread-safe lock for output printing
 print_lock = threading.Lock()
 
@@ -126,10 +126,11 @@ def run_experiment_with_config(config: ExperimentConfig) -> Tuple[bool, int, int
         eval_mode=config.eval_mode,
         eval_config=config.eval_config,
         eval_attempt=config.eval_attempt,
-        modification=config.modification
+        modification=config.modification,
+        api_key=config.api_key
     ), config.cluster_id, config.tool_index
 
-def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None, seed: int = 42, eval_mode: bool = False, eval_config: str = None, eval_attempt: int = None, modification: str = None):
+def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None, seed: int = 42, eval_mode: bool = False, eval_config: str = None, eval_attempt: int = None, modification: str = None, api_key: str = None):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
     data_path = "data/clusters/bias_dataset_bfcl_format.jsonl"
@@ -175,6 +176,10 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
     # Add modification if specified
     if modification is not None:
         cmd.extend(["--modification", modification])
+
+    # Add external API parameters if specified
+    if api_key is not None:
+        cmd.extend(["--api-key", api_key])
 
     if attacker_llm_model is not None:
         cmd.append("--attacker-llm-model")
@@ -271,7 +276,7 @@ def main():
     parser.add_argument("--cluster-id", type=int, nargs="+", required=True, help="Cluster ID (1-10) can either be a single number 1-10 for a single trial, or a range (2 numbers)")
     
     # Optional arguments
-    parser.add_argument("--server-type", default="hflocal", choices=["vllm", "ollama", "hflocal"], help="Server type")
+    parser.add_argument("--server-type", default="hflocal", choices=["vllm", "ollama", "hflocal", "external", "gemini"], help="Server type")
     parser.add_argument("--server-port", type=int, default=11434, help="Starting port number for server")
     parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace or Ollama format)")
     parser.add_argument("--defender-llm-model", default=None, help="Defender model name (HuggingFace or Ollama format)")
@@ -282,6 +287,10 @@ def main():
     # Output directory (for docker)
     parser.add_argument("--out-dir", default=None)
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible results (default: 42).")
+    
+    # External API args (for external server type)
+    parser.add_argument("--api-key", type=str, help="API key for external OpenAI-compatible server (required when server-type is 'external').")
+    parser.add_argument("--model-url", type=str, help="URL for external OpenAI-compatible server (required when server-type is 'external').")
     
     # Eval mode arguments (mutually exclusive with baseline mode)
     parser.add_argument("--eval-mode", action="store_true", help="Enable eval mode: replay attacks from improvement history files in a directory")
@@ -303,6 +312,18 @@ def main():
     
     if args.eval_mode and not args.eval_dir:
         parser.error("--eval-mode requires --eval-dir")
+    
+    # Validate external server type parameters
+    if args.server_type == "external":
+        if args.api_key is None:
+            parser.error("--api-key is required when server-type is 'external'")
+        if args.model_url is None:
+            parser.error("--model-url is required when server-type is 'external'")
+    
+    # Validate gemini server type parameters
+    if args.server_type == "gemini":
+        if args.api_key is None:
+            parser.error("--api-key is required when server-type is 'gemini'")
         
     cluster_ids = None
     if len(args.cluster_id) == 1:
@@ -353,6 +374,12 @@ def main():
         client.wait_for_server_to_start()
         print(f"Server for {model} started")
         model_processes["ollama"] = (url, process, log_handle)
+    elif server_type == "gemini":
+        url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+        model_processes["gemini"] = (url, None, None)
+    elif server_type == "external":
+        url = args.model_url
+        model_processes["external"] = (url, None, None)
 
     
     try:
@@ -378,16 +405,17 @@ def main():
                         tool_index=tool_index,
                         server_type=server_type,
                         server_port=args.server_port,
-                        url=url if server_type == "ollama" else None,
                         attacker_llm_model=None,  # Not used in eval mode
                         defender_llm_model=defender_llm_model,
                         defense_mechanism=args.defense_mechanism,
                         debug=args.debug,
                         base_dir=base_dir,
+                        url=url,
                         seed=args.seed,
                         eval_mode=True,
                         eval_config=eval_config,
-                        eval_attempt=args.eval_attempt
+                        eval_attempt=args.eval_attempt,
+                        api_key=args.api_key,
                     )
                 elif args.baseline_mode:
                     config = ExperimentConfig(
@@ -396,15 +424,16 @@ def main():
                         tool_index=tool_index,
                         server_type=server_type,
                         server_port=args.server_port,
-                        url=url if server_type == "ollama" else None,
                         attacker_llm_model=None,  # Not used in baseline mode
                         defender_llm_model=defender_llm_model,
                         defense_mechanism=args.defense_mechanism,
                         debug=args.debug,
                         base_dir=base_dir,
+                        url=url,
                         seed=args.seed,
                         eval_mode=True,  # Use eval mode for single attempt
-                        modification=args.modification
+                        modification=args.modification,
+                        api_key=args.api_key
                     )
                 else:  # standard mode
                     config = ExperimentConfig(
@@ -413,13 +442,14 @@ def main():
                         tool_index=tool_index,
                         server_type=server_type,
                         server_port=args.server_port,
-                        url=url if server_type == "ollama" else None,
                         attacker_llm_model=attacker_llm_model,
                         defender_llm_model=defender_llm_model,
                         defense_mechanism=args.defense_mechanism,
                         debug=args.debug,
                         base_dir=base_dir,
-                        seed=args.seed
+                        url=url,
+                        seed=args.seed,
+                        api_key=args.api_key
                     )
                 
                 experiment_configs.append(config)
@@ -433,7 +463,9 @@ def main():
         # Run experiments in parallel
         success = run_experiments_parallel(
             configs=experiment_configs,
-            max_workers=args.max_workers
+            # Use in order to avoid being rate-limited (for now)
+            max_workers=args.max_workers if args.server_type != "gemini" and args.server_type != "external" else 1
+
         )
         
         if not success:
@@ -442,8 +474,10 @@ def main():
     finally:
         # Kill the server
         for _, process, log_handle in model_processes.values():
-            process.terminate()
-            log_handle.close()
+            if process is not None:
+                process.terminate()
+            if log_handle is not None:
+                log_handle.close()
         print(f"Killed server")
 
 if __name__ == "__main__":

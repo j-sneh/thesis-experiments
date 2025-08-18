@@ -132,12 +132,12 @@ class VLLMClient(LLMClient):
 class OpenAIClient(LLMClient):
     """LLM client for OpenAI Proxy."""
 
-    def __init__(self, model: str, base_url: str = "http://localhost:8000/v1",):
+    def __init__(self, model: str, base_url: str = "http://localhost:8000/v1", api_key: str = "NO KEY NEEDED LOL"):
         self.model = model
         self.base_url = base_url
         self.client = openai.OpenAI(
             base_url=self.base_url,
-            api_key="no key needed thus far"
+            api_key=api_key
         )
 
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
@@ -176,6 +176,57 @@ class OpenAIClient(LLMClient):
                 time.sleep(0.5)
                 if time.time() - start_time > timeout:
                     raise TimeoutError(f"Server did not start within {timeout} seconds")
+
+class GeminiClient(LLMClient):
+    """LLM client for Google Gemini API."""
+
+    def __init__(self, model: str, base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/", api_key: str = None):
+        if api_key is None:
+            raise ValueError("API key is required for Gemini client")
+        self.model = model
+        self.base_url = base_url
+        self.client = openai.OpenAI(
+            base_url=self.base_url,
+            api_key=api_key
+        )
+
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
+        """
+        Invoke the Gemini model with a list of messages and a list of tools.
+        Note: Gemini does not support the seed parameter, so it's ignored.
+        """
+        try:
+            kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "temperature": temperature,
+            }
+            # Note: Gemini does not support the seed parameter, so it's ignored.
+            
+            response = self.client.chat.completions.create(**kwargs).model_dump()
+            return response['choices'][0]
+        except Exception as e:
+            print(f"An error occurred: {e}")
+    
+    def wait_for_server_to_start(self, timeout: int = 600):
+        """
+        Wait for the server to start.
+        For Gemini, we just do a quick health check.
+        """
+        start_time = time.time()
+        print(f"Checking Gemini API availability... {self.base_url}")
+        while True:
+            try:
+                # Test API call to check if the server is up
+                self.client.models.list() 
+                break
+            except Exception as e:
+                if "Connection error." not in str(e):
+                    raise
+                time.sleep(0.5)
+                if time.time() - start_time > timeout:
+                    raise TimeoutError(f"Gemini API did not respond within {timeout} seconds")
 
 # pip install transformers accelerate torch --extra-index-url https://download.pytorch.org/whl/cu124
 import torch
