@@ -41,7 +41,7 @@ def generate_base_dir(model: str, server_type: str, mode: str, out_dir: str) -> 
     model_short_name = sanitize_model_name(model.lower())
     timestamp = int(time.time())
 
-    bd =  Path(server_type) / model_short_name /  str(timestamp)
+    bd =  Path(server_type) / mode / model_short_name /  str(timestamp)
     
     if out_dir:
         bd =  Path(out_dir) / bd
