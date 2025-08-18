@@ -198,6 +198,20 @@ class HeadToHeadExperiment:
         
         messages.append({"role": "user", "content": feedback_info})
         
+        # DEBUG: Save the full attacker prompt to debug file
+        debug_file_path = f"{self.output_path}-attacker_prompt_debug.txt"
+        with open(debug_file_path, "a", encoding="utf-8") as debug_file:
+            debug_prompt = "\n" + "="*80 + "\n"
+            debug_prompt += f"ATTACKER PROMPT DEBUG - Attempt {len(improvement_history)}\n"
+            debug_prompt += "="*80 + "\n"
+            for i, msg in enumerate(messages):
+                debug_prompt += f"Message {i+1} ({msg['role']}):\n"
+                debug_prompt += f"{msg['content']}\n"
+                debug_prompt += "-"*40 + "\n"
+            debug_prompt += "="*80 + "\n"
+            debug_file.write(debug_prompt)
+            debug_file.flush()
+        
         response = self.attacker_llm_client.invoke(messages, None, temperature=0.5, seed=self.seed) # higher temperature was causing no json output
         improvement = ''
         new_description = None
@@ -478,7 +492,7 @@ class HeadToHeadExperiment:
 
                 def run_trial(question, idx):
                     # random seed for each trial
-                    random.seed(self.seed + idx)
+                    random.seed(self.seed + attempt + idx)
                     messages = question
                     
                     # shuffle tools
@@ -547,9 +561,6 @@ class HeadToHeadExperiment:
                 # Get final counts after all threads complete
                 total_count = selection_counter.value
                 total_calls = calls_counter.value
-                    
-                
-                output_file.flush()
                 # Calculate overall percentage
                 percent = 100.0 * total_count / total_calls if total_calls > 0 else 0.0
                 

@@ -43,10 +43,13 @@ def extract_tool_names(entry: dict) -> List[str]:
     """Extract tool names from tools_provided field."""
     tool_names = []
     tools_provided = entry.get('tools_provided', [])
+
+    target_tool = entry.get("target_tool_name")
     
     for tool in tools_provided:
         try:
             name = tool['function']['name']
+            name = name if name != target_tool else f"TARGET TOOL"
             tool_names.append(name)
         except (KeyError, TypeError):
             print(f"Warning: Could not extract tool name from entry {entry.get('id', 'unknown')}")
@@ -65,11 +68,12 @@ def group_by_cluster_q(data: List[dict]) -> Dict[str, dict]:
     
     for entry in data:
         entry_id = entry.get('id', '')
+        attempt = entry.get('attempt', 100)
         
         # Extract cluster-n-qn pattern
         if entry_id.startswith('cluster-') and '-q' in entry_id:
             # Extract the pattern: cluster-3-q4 -> cluster-3-q4
-            key = entry_id
+            key = entry_id + f"-{attempt}"
             grouped[key] = entry
         
     return grouped
@@ -111,8 +115,10 @@ def compare_tool_orders(dir1: str, dir2: str) -> None:
         return
     
     # Filter by attempt == 0
-    data1_filtered = filter_attempt_zero(data1)
-    data2_filtered = filter_attempt_zero(data2)
+    # data1_filtered = filter_attempt_zero(data1)
+    data1_filtered = data1
+    data2_filtered = data2
+    # data2_filtered = filter_attempt_zero(data2)
     
     print(f"Loaded {len(data1_filtered)} attempt-0 entries from file 1")
     print(f"Loaded {len(data2_filtered)} attempt-0 entries from file 2")
