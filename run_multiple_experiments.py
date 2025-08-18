@@ -36,15 +36,12 @@ def translate_model_name(model_name: str, server_type: str) -> str:
     
     return model_name
 
-def generate_base_dir(model: str, server_type: str, mode: str|None) -> Path:
+def generate_base_dir(model: str, server_type: str, mode: str) -> Path:
     """Generate a base directory for the experiment."""
     model_short_name = sanitize_model_name(model.lower())
     timestamp = int(time.time())
 
-    if mode is None:
-        bd =  Path(server_type) / model_short_name /  str(timestamp)
-    else:
-        bd =  Path(server_type) / mode / model_short_name /  str(timestamp)
+    bd =  Path(server_type) / mode / model_short_name /  str(timestamp)
     return bd
 
 def generate_output_path(model: str, cluster_id: int, tool_index: int, server_type: str, base_dir: Path) -> str:
