@@ -35,12 +35,16 @@ def translate_model_name(model_name: str, server_type: str) -> str:
     
     return model_name
 
-def generate_base_dir(model: str, server_type: str, cluster_id: int, defense_mechanism: str) -> Path:
+def generate_base_dir(model: str, server_type: str, cluster_id: int, defense_mechanism: str, out_dir: str) -> Path:
     """Generate a base directory for the experiment."""
     model_short_name = sanitize_model_name(model.lower())
     timestamp = int(time.time())
 
-    bd =  Path("vllm" if server_type == "vllm" else "ollama") / model_short_name /  str(timestamp)
+    if out_dir:
+        bd =  Path(out_dir) / Path(server_type) / model_short_name /  str(timestamp)
+    else:
+        bd =  Path(server_type) / model_short_name /  str(timestamp)
+
     return bd
 
 def generate_output_path(model: str, cluster_id: int, tool_index: int, server_type: str, base_dir: Path) -> str:
@@ -51,7 +55,7 @@ def generate_output_path(model: str, cluster_id: int, tool_index: int, server_ty
     
     return str(base_dir / filename)
 
-def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None):
+def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None, out_dir: Path = None):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
     data_path = "data/clusters/bias_dataset_bfcl_format.jsonl"
@@ -65,7 +69,10 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
     model_name = translate_model_name(model, server_type)
     
     # Generate output path
-    output_path = generate_output_path(model, cluster_id, tool_index, server_type, base_dir)
+    if out_dir is None:
+        output_path = generate_output_path(model, cluster_id, tool_index, server_type, base_dir)
+    else:
+        output_path = out_dir
     
     # Construct command
     cmd = [
@@ -122,6 +129,7 @@ def main():
     parser.add_argument("--defense-mechanism", default="none", choices=["none", "objective", "reword"], help="Defense mechanism to apply to the tool description.")
     parser.add_argument("--debug", action="store_true", help="Run a small number of trials for debugging")
     parser.add_argument("--tool-index", type=int, nargs="+", help="Tool index (0-4) can either be a single number 0-4 for a single trial, or a range (2 numbers). Will be all 4 tools if not specified.")
+    parser.add_argument("--out-dir", default=None)
     args = parser.parse_args()
 
     cluster_ids = None
@@ -149,7 +157,7 @@ def main():
         raise ValueError("Tool index must be a single number or a range of 2 numbers")
 
     # Spawn the server for the main model
-    base_dir = generate_base_dir(args.model, "ollama", args.cluster_id, args.defense_mechanism)
+    base_dir = generate_base_dir(args.model, "ollama", args.cluster_id, args.defense_mechanism, args.out_dir)
     url, process, log_handle = spawn_server(args.model, args.server_port, "ollama", base_dir)
     print(f"Spawned server for {args.model} at {url}")
 
@@ -180,7 +188,8 @@ def main():
                     defender_llm_model=args.defender_llm_model,
                     defense_mechanism=args.defense_mechanism,
                     debug=args.debug,
-                    base_dir=base_dir
+                    base_dir=base_dir,
+                    out_dir=args.out_dir
                 )
                 if not success:
                     print(f"Stopping after failure on tool index {tool_index}")

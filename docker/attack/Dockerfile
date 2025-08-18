@@ -2,7 +2,10 @@
 # Uses multi-staged approach to reduce size
 # Stage 1
 # Use base conda image to reduce time
-FROM mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04:latest
+
+# TODO: because of external code sharing!!!
+# Please replace the below with some other base image
+# FROM mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04:latest
 # Specify py version
 ENV PYTHON_VERSION=3.10
 # Install apt libs - copied from https://github.com/huggingface/accelerate/blob/main/docker/accelerate-gpu/Dockerfile
@@ -15,13 +18,8 @@ RUN apt-get update && \
 # Infiniband packages
 RUN apt install -y libibverbs1 ibverbs-providers infiniband-diags
 
-# docker conda env 1
-# COPY ./conda-env.yaml ./conda-env.yaml
-# RUN conda env create -f conda-env.yaml
-
-
 # # Create our conda env - copied from https://github.com/huggingface/accelerate/blob/main/docker/accelerate-gpu/Dockerfile
-RUN conda create --name attack python=${PYTHON_VERSION} ipython jupyter pip
+RUN conda create --name attack_base python=${PYTHON_VERSION} ipython jupyter pip
 
 # Below is copied from https://github.com/huggingface/accelerate/blob/main/docker/accelerate-gpu/Dockerfile
 # We don't install pytorch here yet since CUDA isn't available
@@ -33,7 +31,7 @@ SHELL ["/bin/bash", "-c"]
 
 COPY ./requirements.txt ./requirements.txt
 RUN conda init
-RUN source activate attack
+RUN source activate attack_base
 RUN python3 -m pip install --no-cache-dir --upgrade pip
 RUN python3 -m pip install -U setuptools
 RUN conda install nvidia/label/cuda-12.6.0::cuda-toolkit -c nvidia/label/cuda-12.6.0
@@ -44,10 +42,7 @@ RUN pip install azureml-sdk --no-cache-dir
 # RUN pip install vllm>=0.6.2
 RUN pip install -U azureml-fsspec adlfs
 
-RUN echo "source activate attack" >> ~/.profile
-
-# after we build the docker we start the set up for attack conda
-
+RUN echo "source activate attack_base" >> ~/.profile
 
 # ---- Install Ollama ----
 RUN mkdir -p /opt/ollama && \
@@ -56,6 +51,12 @@ RUN mkdir -p /opt/ollama && \
     ln -sf /opt/ollama/bin/ollama /usr/local/bin/ollama && \
     rm -f /tmp/ollama.tgz
 RUN /usr/local/bin/ollama --version || true
+
+COPY ./conda-env.yaml /tmp/conda-env.yaml
+RUN conda env create -n attack -f /tmp/conda-env.yaml || \
+    conda env update -n attack -f /tmp/conda-env.yaml
+# Make the env default on PATH so "python" uses it
+ENV PATH=/opt/miniconda/envs/attack/bin:$PATH
 
 # (Optional) If your scripts expect pkg/bin/ollama to exist:
 RUN mkdir -p /workspace/pkg/bin && ln -sf /opt/ollama/bin/ollama /workspace/pkg/bin/ollama
