@@ -14,12 +14,14 @@ class LLMClient(ABC):
     """Abstract base class for LLM clients."""
 
     @abstractmethod
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
         """
         Invoke the LLM with a list of messages and a list of tools.
 
         :param messages: The chat history/messages to send to the LLM.
         :param tools: A list of tools available to the LLM.
+        :param temperature: Temperature for sampling.
+        :param seed: Random seed for reproducibility.
         :return: The LLM's response.
         """
         pass
@@ -38,7 +40,7 @@ class OllamaClient(LLMClient):
         self.base_url = base_url
         self.client = ollama.Client(host=base_url)
 
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
         """
         Invoke the Ollama model with a list of messages and a list of tools.
         """
@@ -79,13 +81,13 @@ class VLLMClient(LLMClient):
             self.tool_parser = None
             self.reasoning_parser = None
 
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
         """
         Invoke the VLLM model with a list of messages and a list of tools.
         """
 
         # Sampling parameters are set by default, but need max_tokens to be set to generate long descriptions
-        sampling_params = vllm.SamplingParams(temperature=0.8, top_p=0.05, max_tokens=1024)
+        sampling_params = vllm.SamplingParams(temperature=0.8, top_p=0.05, max_tokens=1024, seed=seed)
         try:    
             response =self.llm.chat(
                 messages=messages,
@@ -138,17 +140,21 @@ class OpenAIClient(LLMClient):
             api_key="no key needed thus far"
         )
 
-    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0) -> Dict[str, Any]:
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
         """
         Invoke the OpenAI Proxy model with a list of messages and a list of tools.
         """
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                temperature=temperature,
-            ).model_dump()
+            kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "temperature": temperature,
+            }
+            if seed is not None:
+                kwargs["seed"] = seed
+            
+            response = self.client.chat.completions.create(**kwargs).model_dump()
             return response['choices'][0]
         except Exception as e:
             print(f"An error occurred: {e}")
@@ -262,6 +268,8 @@ class HFLocalClient:
         self,
         messages: List[Dict[str, str]],
         _unused=None,
+        temperature: float = 0.0,
+        seed: int = None,
         *,
         stop: Optional[List[str]] = None,
         generation_overrides: Optional[dict] = None,
@@ -280,6 +288,10 @@ class HFLocalClient:
         gen_cfg = self.gen_cfg
         if generation_overrides:
             gen_cfg = GenerationConfig(**{**gen_cfg.to_dict(), **generation_overrides})
+
+        # Set random seed if provided
+        if seed is not None:
+            torch.manual_seed(seed)
 
         with torch.inference_mode(), torch.cuda.amp.autocast(dtype=self.model.dtype):
             out = self.model.generate(
