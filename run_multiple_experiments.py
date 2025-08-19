@@ -36,15 +36,19 @@ def translate_model_name(model_name: str, server_type: str) -> str:
     
     return model_name
 
-def generate_base_dir(model: str, server_type: str, mode: str) -> Path:
+def generate_base_dir(model: str, server_type: str, mode: str, out_dir: str) -> Path:
     """Generate a base directory for the experiment."""
     model_short_name = sanitize_model_name(model.lower())
     timestamp = int(time.time())
 
     bd =  Path(server_type) / mode / model_short_name /  str(timestamp)
+    
+    if out_dir:
+        bd =  Path(out_dir) / bd
+
     return bd
 
-def generate_output_path(model: str, cluster_id: int, tool_index: int, server_type: str, base_dir: Path) -> str:
+def generate_output_path(model: str, cluster_id: int, tool_index: int, base_dir: Path) -> str:
     """Generate a structured output path based on experiment parameters."""    
     model_short_name = sanitize_model_name(model.lower())
     # Format: {server_type}/cluster-{id}-tool-{index}-{model}-q0-100
@@ -87,7 +91,7 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
     model_name = translate_model_name(model, server_type)
     
     # Generate output path 
-    output_path = generate_output_path(model, cluster_id, tool_index, server_type, base_dir)
+    output_path = generate_output_path(model, cluster_id, tool_index, base_dir)
     
     # Construct command
     cmd = [
@@ -167,6 +171,9 @@ def main():
     parser.add_argument("--defense-mechanism", default="none", choices=["none", "objective", "reword"], help="Defense mechanism to apply to the tool description.")
     parser.add_argument("--debug", action="store_true", help="Run a small number of trials for debugging")
     parser.add_argument("--tool-index", type=int, nargs="+", help="Tool index (0-4) can either be a single number 0-4 for a single trial, or a range (2 numbers). Will be all 4 tools if not specified.")
+
+    # Output directory (for docker)
+    parser.add_argument("--out-dir", default=None)
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible results (default: 42).")
     
     # Eval mode arguments (mutually exclusive with baseline mode)
@@ -218,11 +225,11 @@ def main():
 
     # Determine base directory based on mode
     if args.eval_mode:
-        base_dir = generate_base_dir(model, server_type, "eval")
+        base_dir = generate_base_dir(model, server_type, "eval", args.out_dir)
     elif args.baseline_mode:
-        base_dir = generate_base_dir(model, server_type, "baseline")
+        base_dir = generate_base_dir(model, server_type, "baseline", args.out_dir)
     else:
-        base_dir = generate_base_dir(model, server_type, "attack")
+        base_dir = generate_base_dir(model, server_type, "attack", args.out_dir)
 
     model_processes = {}
     if server_type == "ollama":
