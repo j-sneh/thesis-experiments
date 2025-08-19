@@ -7,9 +7,40 @@ from pathlib import Path
 import re
 import time
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from dataclasses import dataclass
 from core.llm_clients import OpenAIClient
 from core.utils import spawn_server
+
+@dataclass
+class ExperimentConfig:
+    """Configuration for a single experiment run."""
+    model: str
+    cluster_id: int
+    tool_index: int
+    server_type: str
+    server_port: int
+    url: Optional[str]
+    attacker_llm_model: Optional[str]
+    defender_llm_model: Optional[str]
+    defense_mechanism: str
+    debug: bool
+    base_dir: Path
+    seed: int
+    eval_mode: bool = False
+    eval_config: Optional[str] = None
+    eval_attempt: Optional[int] = None
+    modification: Optional[str] = None
+
+# Thread-safe lock for output printing
+print_lock = threading.Lock()
+
+def safe_print(*args, **kwargs):
+    """Thread-safe print function."""
+    with print_lock:
+        print(*args, **kwargs)
 
 def sanitize_model_name(model_name: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', '_', model_name)
@@ -77,6 +108,27 @@ def find_improvement_file(eval_dir: str, cluster_id: int, tool_index: int) -> st
     
     return None
 
+def run_experiment_with_config(config: ExperimentConfig) -> Tuple[bool, int, int]:
+    """Run a single experiment with the given configuration. Returns (success, cluster_id, tool_index)."""
+    return run_experiment(
+        model=config.model,
+        cluster_id=config.cluster_id,
+        tool_index=config.tool_index,
+        server_type=config.server_type,
+        server_port=config.server_port,
+        url=config.url,
+        attacker_llm_model=config.attacker_llm_model,
+        defender_llm_model=config.defender_llm_model,
+        defense_mechanism=config.defense_mechanism,
+        debug=config.debug,
+        base_dir=config.base_dir,
+        seed=config.seed,
+        eval_mode=config.eval_mode,
+        eval_config=config.eval_config,
+        eval_attempt=config.eval_attempt,
+        modification=config.modification
+    ), config.cluster_id, config.tool_index
+
 def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None, seed: int = 42, eval_mode: bool = False, eval_config: str = None, eval_attempt: int = None, modification: str = None):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
@@ -142,18 +194,73 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
         cmd.append("--defender-url")
         cmd.append(url)
     
-    print(f"\nRunning experiment for tool index {tool_index}")
-    print(f"Output path: {output_path}")
-    print(cmd)
-    print(f"Command: {' '.join(cmd)}\n")
+    safe_print(f"\nRunning experiment for tool index {tool_index}")
+    safe_print(f"Output path: {output_path}")
+    safe_print(cmd)
+    safe_print(f"Command: {' '.join(cmd)}\n")
     
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Error running experiment for tool index {tool_index}: {e}", file=sys.stderr)
+        safe_print(f"Error running experiment for tool index {tool_index}: {e}", file=sys.stderr)
         return False
     return True
 
+def run_experiments_parallel(configs: List[ExperimentConfig], max_workers: int = 1) -> bool:
+    """
+    Run multiple experiments in parallel using ThreadPoolExecutor.
+    
+    Args:
+        configs: List of experiment configurations
+        max_workers: Maximum number of parallel workers
+    
+    Returns:
+        True if all experiments succeeded, False otherwise
+    """
+    if max_workers == 1:
+        # Sequential execution
+        for config in configs:
+            success, cluster_id, tool_index = run_experiment_with_config(config)
+            if not success:
+                safe_print(f"Stopping after failure on cluster {cluster_id}, tool {tool_index}")
+                return False
+        return True
+    
+    # Parallel execution using threads (optimal for I/O bound API requests)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all experiments
+        future_to_config = {
+            executor.submit(run_experiment_with_config, config): config
+            for config in configs
+        }
+        
+        # Process results as they complete
+        failed_experiments = []
+        completed_count = 0
+        
+        for future in as_completed(future_to_config):
+            config = future_to_config[future]
+            completed_count += 1
+            
+            try:
+                success, cluster_id, tool_index = future.result()
+                if success:
+                    safe_print(f"✓ Completed experiment {completed_count}/{len(configs)}: cluster {cluster_id}, tool {tool_index}")
+                else:
+                    safe_print(f"✗ Failed experiment {completed_count}/{len(configs)}: cluster {cluster_id}, tool {tool_index}")
+                    failed_experiments.append((cluster_id, tool_index))
+            except Exception as e:
+                safe_print(f"✗ Exception in experiment {completed_count}/{len(configs)}: cluster {config.cluster_id}, tool {config.tool_index}: {e}")
+                failed_experiments.append((config.cluster_id, config.tool_index))
+        
+        if failed_experiments:
+            safe_print(f"\nFailed experiments:")
+            for cluster_id, tool_index in failed_experiments:
+                safe_print(f"  - Cluster {cluster_id}, Tool {tool_index}")
+            return False
+        
+        safe_print(f"\nAll {len(configs)} experiments completed successfully!")
+        return True
 
 
 def main():
@@ -183,7 +290,10 @@ def main():
     
     # Baseline mode arguments (mutually exclusive with eval mode)
     parser.add_argument("--baseline-mode", action="store_true", help="Enable baseline mode: test modifications on original tools")
-    parser.add_argument("--modification", default="none", type=str, choices=["assertive_cue", "active_maintenance", "none", "noop"], help="Modification to apply in baseline mode")
+    parser.add_argument("--modification", default="none", type=str, choices=["assertive_cue", "active_maintenance", "combination", "none", "noop"], help="Modification to apply in baseline mode")
+    
+    # Parallelization arguments
+    parser.add_argument("--max-workers", type=int, default=5, help="Maximum number of parallel workers (default: 5), 1 is sequential")
     
     args = parser.parse_args()
 
@@ -232,6 +342,7 @@ def main():
         base_dir = generate_base_dir(model, server_type, "attack", args.out_dir)
 
     model_processes = {}
+    url = None  # Initialize url variable
     if server_type == "ollama":
     # Spawn the server for the main model
         url, process, log_handle = spawn_server(model, args.server_port, server_type, base_dir / "PLACEHOLDER_FILE_TO_REMOVE")
@@ -250,7 +361,8 @@ def main():
         with open(base_dir / "args.json", "w") as f:
             json.dump(vars(args), f)
         
-        # Run experiments for all cluster/tool combinations
+        # Build experiment configurations
+        experiment_configs = []
         for cluster_id in cluster_ids:
             for tool_index in tool_indices:
                 if args.eval_mode:
@@ -260,65 +372,73 @@ def main():
                         print(f"No improvement history file found for cluster {cluster_id}, tool {tool_index}")
                         continue
                     
-                    print(f"Running eval experiment for cluster {cluster_id}, tool {tool_index}")
-                    print(f"Eval config: {eval_config}")
-                    
-                    success = run_experiment(
+                    config = ExperimentConfig(
                         model=model,
                         cluster_id=cluster_id,
                         tool_index=tool_index,
                         server_type=server_type,
                         server_port=args.server_port,
+                        url=url if server_type == "ollama" else None,
                         attacker_llm_model=None,  # Not used in eval mode
                         defender_llm_model=defender_llm_model,
                         defense_mechanism=args.defense_mechanism,
                         debug=args.debug,
                         base_dir=base_dir,
-                        url=url if server_type == "ollama" else None,
                         seed=args.seed,
                         eval_mode=True,
                         eval_config=eval_config,
                         eval_attempt=args.eval_attempt
                     )
                 elif args.baseline_mode:
-                    print(f"Running baseline experiment for cluster {cluster_id}, tool {tool_index}")
-                    print(f"Modification: {args.modification}")
-                    
-                    success = run_experiment(
+                    config = ExperimentConfig(
                         model=model,
                         cluster_id=cluster_id,
                         tool_index=tool_index,
                         server_type=server_type,
                         server_port=args.server_port,
+                        url=url if server_type == "ollama" else None,
                         attacker_llm_model=None,  # Not used in baseline mode
                         defender_llm_model=defender_llm_model,
                         defense_mechanism=args.defense_mechanism,
                         debug=args.debug,
                         base_dir=base_dir,
-                        url=url if server_type == "ollama" else None,
                         seed=args.seed,
                         eval_mode=True,  # Use eval mode for single attempt
                         modification=args.modification
                     )
                 else:  # standard mode
-                    success = run_experiment(
+                    config = ExperimentConfig(
                         model=model,
                         cluster_id=cluster_id,
                         tool_index=tool_index,
                         server_type=server_type,
                         server_port=args.server_port,
+                        url=url if server_type == "ollama" else None,
                         attacker_llm_model=attacker_llm_model,
                         defender_llm_model=defender_llm_model,
                         defense_mechanism=args.defense_mechanism,
                         debug=args.debug,
                         base_dir=base_dir,
-                        url=url if server_type == "ollama" else None,
                         seed=args.seed
                     )
                 
-                if not success:
-                    print(f"Stopping after failure on cluster {cluster_id}, tool {tool_index}")
-                    sys.exit(1)
+                experiment_configs.append(config)
+        
+        if not experiment_configs:
+            print("No experiments to run!")
+            return
+        
+        print(f"Running {len(experiment_configs)} experiments with {args.max_workers} workers (thread mode)")
+        
+        # Run experiments in parallel
+        success = run_experiments_parallel(
+            configs=experiment_configs,
+            max_workers=args.max_workers
+        )
+        
+        if not success:
+            print(f"Some experiments failed!")
+            sys.exit(1)
     finally:
         # Kill the server
         for _, process, log_handle in model_processes.values():
