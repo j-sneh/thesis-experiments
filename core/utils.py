@@ -127,7 +127,7 @@ def spawn_server(model_name: str, port: int = 8000, server_type: str = "ollama",
             
     else:  # ollama
         env["OLLAMA_DEBUG"] = "2"
-        env["OLLAMA_NUM_PARALLEL"] = "4"
+        env["OLLAMA_NUM_PARALLEL"] = "10"
         env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
         env["OLLAMA_CONTEXT_LENGTH"] = "8192"
 
