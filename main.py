@@ -7,7 +7,7 @@ def main():
     parser.add_argument("--model", type=str, default="llama3.2", help="Model to use.")
     parser.add_argument("--data-path", type=str, default="data/clusters/bias_dataset_bfcl_format.jsonl", help="Path to the data file.")
     parser.add_argument("--output-path", type=str, default="results", help="Path to save the results.")
-    parser.add_argument("--modification", type=str, default="none", help="Modification to apply to the tool description.", choices=["assertive_cue", "active_maintenance", "none", "noop"])
+    parser.add_argument("--modification", type=str, default="none", help="Modification to apply to the tool description.", choices=["assertive_cue", "active_maintenance", "combination", "none", "noop"])
     parser.add_argument("--defense-mechanism", choices=["objective", "reword", "none", "noop"], type=str, default="none", help="Defense mechanism to apply to the tool description.")
     parser.add_argument("--attack-mode", type=str, choices=["attack", "suffix-attack", "cluster-attack", "no-attack"], default="no-attack", help="Attack mode to use: 'attack', 'suffix-attack', 'cluster-attack', or 'no-attack'.")
     parser.add_argument("--attacker-llm-model", type=str, help="Model to use for attacker mode.")

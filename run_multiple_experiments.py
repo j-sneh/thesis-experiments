@@ -290,7 +290,7 @@ def main():
     
     # Baseline mode arguments (mutually exclusive with eval mode)
     parser.add_argument("--baseline-mode", action="store_true", help="Enable baseline mode: test modifications on original tools")
-    parser.add_argument("--modification", default="none", type=str, choices=["assertive_cue", "active_maintenance", "none", "noop"], help="Modification to apply in baseline mode")
+    parser.add_argument("--modification", default="none", type=str, choices=["assertive_cue", "active_maintenance", "combination", "none", "noop"], help="Modification to apply in baseline mode")
     
     # Parallelization arguments
     parser.add_argument("--max-workers", type=int, default=5, help="Maximum number of parallel workers (default: 5), 1 is sequential")
