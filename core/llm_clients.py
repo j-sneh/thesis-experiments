@@ -261,33 +261,19 @@ def get_credential() -> DeviceCodeCredential:
     return credential
 
 
-
-class ChatGPTAzure(LLMClient):
-    def __init__(self, model, gen_config, config) -> None:
+class ChatGPTAzureClient(LLMClient):
+    def __init__(self, model, api_version, azure_endpoint) -> None:
         # Extracts temperature and max_tokens from the provided gen_config
-        self.gen_config = {key: gen_config[key] for key in gen_config if key in ['temperature', 'max_tokens']}
         self.model = model  # Model name, e.g., "gpt-4"
 
-        self.config = {
-        'provider': 'azure',
-        'model': self.model,
-        'gen_config': {
-            'max_tokens': 1000,
-        },
-        'azure': {
-            'api_version': config['api_version'],
-            'azure_deployment': config['azure_deployment'],
-            'azure_endpoint': config['azure_endpoint'],
-        },
-    }
         # Assuming get_bearer_token_provider, get_credential, and AzureOpenAI are defined elsewhere
         token_provider = get_bearer_token_provider(DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
 
         # Initialize the Azure OpenAI client with provided configurations
         self.client = AzureOpenAI(
-            azure_endpoint=config['azure_endpoint'],
-            api_version=config['api_version'],
-            azure_deployment=config['azure_deployment'],
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
+            azure_deployment=self.model,
             azure_ad_token_provider=token_provider
         )
     
@@ -295,20 +281,28 @@ class ChatGPTAzure(LLMClient):
         """
         Invoke the Azure OpenAI model with a list of messages and a list of tools.
         """
-        response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    tools=tools,
-                    temperature=temperature,
-                    seed=seed,
-                    **self.gen_config
-                )
+        try:
+            # merge self.gen_config with kwargs
+            kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "temperature": temperature,
+            }
+            
+            if seed is not None:
+                kwargs["seed"] = seed
+            
+            response = self.client.chat.completions.create(**kwargs).model_dump()
+            return response['choices'][0]
+        except Exception as e:
+            print(f"An error occurred: {e}")
+        
+
 
 
 def ollama_to_openai(messages):
     return messages
-
-
 
 
 def make(api_version,deployment,azure_endpoint):

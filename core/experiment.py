@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from typing import Optional, Tuple
 from core.utils import load_data, load_cluster_data, spawn_server, OLLAMA_PATH, parse_json_inside_string
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
-from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient, HFLocalClient, GeminiClient
+from core.llm_clients import ChatGPTAzureClient, LLMClient, OpenAIClient, HFLocalClient, GeminiClient
 from tqdm import tqdm
 import json
 import copy
@@ -12,6 +12,7 @@ import threading
 import subprocess
 import time
 import random
+import dotenv
 
 class ThreadSafeCounter:
     def __init__(self):
@@ -80,7 +81,6 @@ class HeadToHeadExperiment:
 
     def _parse_eval_config(self) -> Tuple[str, str]:
         """Parse evaluation configuration from JSON/JSONL file."""
-        import os
         
         if not os.path.exists(self.eval_config):
             raise FileNotFoundError(f"Evaluation config file not found: {self.eval_config}")
@@ -817,6 +817,21 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
             llm_client = client_class(model_name, base_url=model_processes[model_name][0], api_key=api_key)
             attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0], api_key=api_key) if attacker_llm_model else llm_client     
             defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0], api_key=api_key) if defender_llm_model else llm_client
+        elif server_type == "azure":
+            # model_name is the "azure_deployment" name
+
+            # We assume OX_AZURE_API_VERSION and OX_AZURE_ENDPOINT are set in the environment variables, this is to keep it separate from the rest
+            # of the configuration, since it should not be outputted to 
+            # the args file
+            dotenv.load_dotenv()
+            api_version = os.getenv("OX_AZURE_API_VERSION")
+            azure_endpoint = os.getenv("OX_AZURE_ENDPOINT")
+            if api_version is None or azure_endpoint is None:
+                raise ValueError("OX_AZURE_API_VERSION and OX_AZURE_ENDPOINT must be set in the environment variables for azure runs")
+
+            llm_client = ChatGPTAzureClient(model_name, api_version, azure_endpoint)
+            attacker_llm_client = ChatGPTAzureClient(attacker_llm_model, api_version, azure_endpoint) if attacker_llm_model else llm_client
+            defender_llm_client = ChatGPTAzureClient(defender_llm_model, api_version, azure_endpoint) if defender_llm_model else llm_client
         else:
             # For ollama and vllm servers, use default API key
             llm_client = client_class(model_name, base_url=model_processes[model_name][0])

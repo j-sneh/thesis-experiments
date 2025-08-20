@@ -34,7 +34,7 @@ def main():
 
     # Server args
     parser.add_argument("--server-port", type=int, default=8000, help="Port to use for the server.")
-    parser.add_argument("--server-type", type=str, choices=["ollama", "vllm", "hflocal", "external", "gemini"], default="ollama", help="Type of server to use: 'ollama', 'vllm', 'hflocal', 'external', or 'gemini'.")
+    parser.add_argument("--server-type", type=str, choices=["ollama", "vllm", "hflocal", "external", "gemini", "azure"], default="ollama", help="Type of server to use: 'ollama', 'vllm', 'hflocal', 'external', or 'gemini'.")
     
     # URL args (if provided, skip server spawning for that model)
     parser.add_argument("--model-url", type=str, help="URL for the main model server (if already running).")

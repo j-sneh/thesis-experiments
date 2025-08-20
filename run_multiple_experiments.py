@@ -276,7 +276,7 @@ def main():
     parser.add_argument("--cluster-id", type=int, nargs="+", required=True, help="Cluster ID (1-10) can either be a single number 1-10 for a single trial, or a range (2 numbers)")
     
     # Optional arguments
-    parser.add_argument("--server-type", default="hflocal", choices=["vllm", "ollama", "hflocal", "external", "gemini"], help="Server type")
+    parser.add_argument("--server-type", default="hflocal", choices=["vllm", "ollama", "hflocal", "external", "gemini", "azure"], help="Server type")
     parser.add_argument("--server-port", type=int, default=11434, help="Starting port number for server")
     parser.add_argument("--attacker-llm-model", default=None, help="Attacker model name (HuggingFace or Ollama format)")
     parser.add_argument("--defender-llm-model", default=None, help="Defender model name (HuggingFace or Ollama format)")
