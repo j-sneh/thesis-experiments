@@ -1,13 +1,18 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import time
 import ollama
 import vllm
 import openai
+import os
 from vllm.entrypoints.openai.tool_parsers import Hermes2ProToolParser, Llama3JsonToolParser
 from vllm.reasoning import Qwen3ReasoningParser
-import requests
-import os
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+import torch
+import base64
+from azure.identity import (
+    AuthenticationRecord, get_bearer_token_provider, DeviceCodeCredential, TokenCachePersistenceOptions, DefaultAzureCredential)
+from openai import AzureOpenAI
 
 # TODO: standardise tool call response format so it matches OpenAI's format
 class LLMClient(ABC):
@@ -228,12 +233,110 @@ class GeminiClient(LLMClient):
                 if time.time() - start_time > timeout:
                     raise TimeoutError(f"Gemini API did not respond within {timeout} seconds")
 
-# pip install transformers accelerate torch --extra-index-url https://download.pytorch.org/whl/cu124
-import torch
-from typing import List, Dict, Any, Optional
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
-class HFLocalClient:
+
+
+def get_credential() -> DeviceCodeCredential:
+    lib_name = "xyz"
+
+    auth_record_root_path = os.environ.get("localxyz", os.path.expanduser("~"))
+
+    auth_record_path = os.path.join(auth_record_root_path, lib_name, "auth_record.json")
+
+    cache_options = TokenCachePersistenceOptions(name=f"{lib_name}.cache", allow_unencrypted_storage=True)
+
+    if os.path.exists(auth_record_path):
+        with open(auth_record_path, "r") as f:
+            record_json = f.read()
+
+        deserialized_record = AuthenticationRecord.deserialize(record_json)
+        credential = DeviceCodeCredential(cache_persistence_options=cache_options)
+    else:
+        os.makedirs(os.path.dirname(auth_record_path), exist_ok=True)
+        credential = DeviceCodeCredential(cache_persistence_options=cache_options)
+        record_json = credential.authenticate().serialize()
+        with open(auth_record_path, "w") as f:
+            f.write(record_json)
+    print("Authentication successful.")
+    return credential
+
+
+
+class ChatGPTAzure(LLMClient):
+    def __init__(self, model, gen_config, config) -> None:
+        # Extracts temperature and max_tokens from the provided gen_config
+        self.gen_config = {key: gen_config[key] for key in gen_config if key in ['temperature', 'max_tokens']}
+        self.model = model  # Model name, e.g., "gpt-4"
+
+        self.config = {
+        'provider': 'azure',
+        'model': self.model,
+        'gen_config': {
+            'max_tokens': 1000,
+        },
+        'azure': {
+            'api_version': config['api_version'],
+            'azure_deployment': config['azure_deployment'],
+            'azure_endpoint': config['azure_endpoint'],
+        },
+    }
+        # Assuming get_bearer_token_provider, get_credential, and AzureOpenAI are defined elsewhere
+        token_provider = get_bearer_token_provider(DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
+
+        # Initialize the Azure OpenAI client with provided configurations
+        self.client = AzureOpenAI(
+            azure_endpoint=config['azure_endpoint'],
+            api_version=config['api_version'],
+            azure_deployment=config['azure_deployment'],
+            azure_ad_token_provider=token_provider
+        )
+    
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
+        """
+        Invoke the Azure OpenAI model with a list of messages and a list of tools.
+        """
+        response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=temperature,
+                    seed=seed,
+                    **self.gen_config
+                )
+
+
+def ollama_to_openai(messages):
+    return messages
+
+
+
+
+def make(api_version,deployment,azure_endpoint):
+    config = {
+        'provider': 'azure',
+        'model': deployment,
+        'gen_config': {
+            'max_tokens': 1000,
+        },
+        'azure': {
+            'api_version': api_version,
+            'azure_deployment': deployment,
+            'azure_endpoint': azure_endpoint,
+        },
+    }
+
+    provider = config['provider']
+    model = config['model']
+    gen_config = config['gen_config']
+    if provider == 'azure':
+
+        return ChatGPTAzure(
+            model=model,
+            gen_config=gen_config,
+            config=config['azure']
+        )
+
+class HFLocalClient(LLMClient):
     """
     Minimal local HF client that mirrors your server client's .invoke() signature:
     returns {'message': {'content': <str>}}.
