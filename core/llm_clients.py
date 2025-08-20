@@ -1,13 +1,18 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import time
 import ollama
 import vllm
 import openai
+import os
 from vllm.entrypoints.openai.tool_parsers import Hermes2ProToolParser, Llama3JsonToolParser
 from vllm.reasoning import Qwen3ReasoningParser
-import requests
-import os
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+import torch
+import base64
+from azure.identity import (
+    AuthenticationRecord, get_bearer_token_provider, DeviceCodeCredential, TokenCachePersistenceOptions, DefaultAzureCredential)
+from openai import AzureOpenAI
 
 # TODO: standardise tool call response format so it matches OpenAI's format
 class LLMClient(ABC):
@@ -132,12 +137,12 @@ class VLLMClient(LLMClient):
 class OpenAIClient(LLMClient):
     """LLM client for OpenAI Proxy."""
 
-    def __init__(self, model: str, base_url: str = "http://localhost:8000/v1",):
+    def __init__(self, model: str, base_url: str = "http://localhost:8000/v1", api_key: str = "NO KEY NEEDED LOL"):
         self.model = model
         self.base_url = base_url
         self.client = openai.OpenAI(
             base_url=self.base_url,
-            api_key="no key needed thus far"
+            api_key=api_key
         )
 
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
@@ -177,12 +182,155 @@ class OpenAIClient(LLMClient):
                 if time.time() - start_time > timeout:
                     raise TimeoutError(f"Server did not start within {timeout} seconds")
 
-# pip install transformers accelerate torch --extra-index-url https://download.pytorch.org/whl/cu124
-import torch
-from typing import List, Dict, Any, Optional
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+class GeminiClient(LLMClient):
+    """LLM client for Google Gemini API."""
 
-class HFLocalClient:
+    def __init__(self, model: str, base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/", api_key: str = None):
+        if api_key is None:
+            raise ValueError("API key is required for Gemini client")
+        self.model = model
+        self.base_url = base_url
+        self.client = openai.OpenAI(
+            base_url=self.base_url,
+            api_key=api_key
+        )
+
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
+        """
+        Invoke the Gemini model with a list of messages and a list of tools.
+        Note: Gemini does not support the seed parameter, so it's ignored.
+        """
+        try:
+            kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "temperature": temperature,
+            }
+            # Note: Gemini does not support the seed parameter, so it's ignored.
+            
+            response = self.client.chat.completions.create(**kwargs).model_dump()
+            return response['choices'][0]
+        except Exception as e:
+            print(f"An error occurred: {e}")
+    
+    def wait_for_server_to_start(self, timeout: int = 600):
+        """
+        Wait for the server to start.
+        For Gemini, we just do a quick health check.
+        """
+        start_time = time.time()
+        print(f"Checking Gemini API availability... {self.base_url}")
+        while True:
+            try:
+                # Test API call to check if the server is up
+                self.client.models.list() 
+                break
+            except Exception as e:
+                if "Connection error." not in str(e):
+                    raise
+                time.sleep(0.5)
+                if time.time() - start_time > timeout:
+                    raise TimeoutError(f"Gemini API did not respond within {timeout} seconds")
+
+
+
+
+def get_credential() -> DeviceCodeCredential:
+    lib_name = "xyz"
+
+    auth_record_root_path = os.environ.get("localxyz", os.path.expanduser("~"))
+
+    auth_record_path = os.path.join(auth_record_root_path, lib_name, "auth_record.json")
+
+    cache_options = TokenCachePersistenceOptions(name=f"{lib_name}.cache", allow_unencrypted_storage=True)
+
+    if os.path.exists(auth_record_path):
+        with open(auth_record_path, "r") as f:
+            record_json = f.read()
+
+        deserialized_record = AuthenticationRecord.deserialize(record_json)
+        credential = DeviceCodeCredential(cache_persistence_options=cache_options)
+    else:
+        os.makedirs(os.path.dirname(auth_record_path), exist_ok=True)
+        credential = DeviceCodeCredential(cache_persistence_options=cache_options)
+        record_json = credential.authenticate().serialize()
+        with open(auth_record_path, "w") as f:
+            f.write(record_json)
+    print("Authentication successful.")
+    return credential
+
+
+class ChatGPTAzureClient(LLMClient):
+    def __init__(self, model, api_version, azure_endpoint) -> None:
+        # Extracts temperature and max_tokens from the provided gen_config
+        self.model = model  # Model name, e.g., "gpt-4"
+
+        # Assuming get_bearer_token_provider, get_credential, and AzureOpenAI are defined elsewhere
+        token_provider = get_bearer_token_provider(DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
+
+        # Initialize the Azure OpenAI client with provided configurations
+        self.client = AzureOpenAI(
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
+            azure_deployment=self.model,
+            azure_ad_token_provider=token_provider
+        )
+    
+    def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
+        """
+        Invoke the Azure OpenAI model with a list of messages and a list of tools.
+        """
+        try:
+            # merge self.gen_config with kwargs
+            kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "temperature": temperature,
+            }
+            
+            if seed is not None:
+                kwargs["seed"] = seed
+            
+            response = self.client.chat.completions.create(**kwargs).model_dump()
+            return response['choices'][0]
+        except Exception as e:
+            print(f"An error occurred: {e}")
+        
+
+
+
+def ollama_to_openai(messages):
+    return messages
+
+
+def make(api_version,deployment,azure_endpoint):
+    config = {
+        'provider': 'azure',
+        'model': deployment,
+        'gen_config': {
+            'max_tokens': 1000,
+        },
+        'azure': {
+            'api_version': api_version,
+            'azure_deployment': deployment,
+            'azure_endpoint': azure_endpoint,
+        },
+    }
+
+    provider = config['provider']
+    model = config['model']
+    gen_config = config['gen_config']
+    if provider == 'azure':
+
+        return ChatGPTAzure(
+            model=model,
+            gen_config=gen_config,
+            config=config['azure']
+        )
+
+class HFLocalClient(LLMClient):
     """
     Minimal local HF client that mirrors your server client's .invoke() signature:
     returns {'message': {'content': <str>}}.

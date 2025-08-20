@@ -34,12 +34,15 @@ def main():
 
     # Server args
     parser.add_argument("--server-port", type=int, default=8000, help="Port to use for the server.")
-    parser.add_argument("--server-type", type=str, choices=["ollama", "vllm", "hflocal"], default="ollama", help="Type of server to use: 'ollama' or 'vllm'.")
+    parser.add_argument("--server-type", type=str, choices=["ollama", "vllm", "hflocal", "external", "gemini", "azure"], default="ollama", help="Type of server to use: 'ollama', 'vllm', 'hflocal', 'external', or 'gemini'.")
     
     # URL args (if provided, skip server spawning for that model)
     parser.add_argument("--model-url", type=str, help="URL for the main model server (if already running).")
     parser.add_argument("--attacker-url", type=str, help="URL for the attacker model server (if already running).")
     parser.add_argument("--defender-url", type=str, help="URL for the defender model server (if already running).")
+    
+    # External API args (for external server type)
+    parser.add_argument("--api-key", type=str, help="API key for external OpenAI-compatible server (required when server-type is 'external').")
     
     args = parser.parse_args()
 
@@ -59,6 +62,18 @@ def main():
             parser.error("--question-start must be non-negative")
         if args.question_end <= args.question_start:
             parser.error("--question-end must be greater than --question-start")
+
+    # Validate external server type parameters
+    if args.server_type == "external":
+        if args.api_key is None:
+            parser.error("--api-key is required when server-type is 'external'")
+        if args.model_url is None:
+            parser.error("--model-url is required when server-type is 'external'")
+    
+    # Validate gemini server type parameters
+    if args.server_type == "gemini":
+        if args.api_key is None:
+            parser.error("--api-key is required when server-type is 'gemini'")
 
     # Validate evaluation mode parameters
     if args.eval_mode:
@@ -113,7 +128,8 @@ def main():
         eval_name=args.eval_name,
         eval_description=args.eval_description,
         eval_config=args.eval_config,
-        eval_attempt=args.eval_attempt
+        eval_attempt=args.eval_attempt,
+        api_key=args.api_key
     )
 
 if __name__ == "__main__":

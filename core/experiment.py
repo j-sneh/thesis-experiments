@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from typing import Optional, Tuple
 from core.utils import load_data, load_cluster_data, spawn_server, OLLAMA_PATH, parse_json_inside_string
 from core.tool_modifier import duplicate_and_rename_tool, modify_tool_description, format_tool_for_openai_api, get_defended_description, modify_tool_for_cluster_attack
-from core.llm_clients import LLMClient, OllamaClient, VLLMClient, OpenAIClient, HFLocalClient
+from core.llm_clients import ChatGPTAzureClient, LLMClient, OpenAIClient, HFLocalClient, GeminiClient
 from tqdm import tqdm
 import json
 import copy
@@ -12,6 +12,7 @@ import threading
 import subprocess
 import time
 import random
+import dotenv
 
 class ThreadSafeCounter:
     def __init__(self):
@@ -80,7 +81,6 @@ class HeadToHeadExperiment:
 
     def _parse_eval_config(self) -> Tuple[str, str]:
         """Parse evaluation configuration from JSON/JSONL file."""
-        import os
         
         if not os.path.exists(self.eval_config):
             raise FileNotFoundError(f"Evaluation config file not found: {self.eval_config}")
@@ -713,7 +713,8 @@ class HeadToHeadExperiment:
         
 def run_head_to_head_experiment(model_name, data_path, output_path, modification, defense_mechanism, attacker_mode="no-attack", attacker_llm_model=None, defender_llm_model=None, max_attempts=5, dataset_size=None, client="openai",
                                 cluster_id=None, target_tool_index=None, question_start=None, question_end=None, attack_modification_type="both", server_port=8000, server_type="hflocal",
-                                model_url=None, attacker_url=None, defender_url=None, seed=42, eval_mode=False, eval_name=None, eval_description=None, eval_config=None, eval_attempt=None):
+                                model_url=None, attacker_url=None, defender_url=None, seed=42, eval_mode=False, eval_name=None, eval_description=None, eval_config=None, eval_attempt=None,
+                                api_key=None):
     """
     Run an LLM tool selection experiment.
     
@@ -740,12 +741,15 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
         attacker_url: URL for the attacker model server (if already running, skips spawning)
         defender_url: URL for the defender model server (if already running, skips spawning)
         seed: Random seed for reproducible results
+        api_key: API key for external OpenAI-compatible server (required when server_type is 'external')
     """
 
     client_class = None
     # TODO: deprecate client argument entirely
     if server_type == "hflocal":
         client_class = HFLocalClient
+    elif server_type == "gemini":
+        client_class = GeminiClient
     else:
         client_class = OpenAIClient
 
@@ -757,15 +761,29 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
     model_processes = {}
     models_needing_servers = []
     
-    # First, handle models with provided URLs
-    for model, url in zip(models, provided_urls):
-        if url and url != '':
-            # Use provided URL, no server spawning needed
-            model_processes[model] = (url, None, None)
-            print(f"Using existing server for {model} at {url}")
-        elif model and server_type != "hflocal":
-            # Model exists but no URL provided, needs server
-            models_needing_servers.append(model)
+    # Handle external server type - use model_url for all models
+    if server_type == "external":
+        for model in models:
+            if model:
+                model_processes[model] = (model_url, None, None)
+                print(f"Using external server for {model} at {model_url}")
+    elif server_type == "gemini":
+        # Handle gemini server type - use default URL or provided model_url
+        gemini_url = model_url if model_url else "https://generativelanguage.googleapis.com/v1beta/openai/"
+        for model in models:
+            if model:
+                model_processes[model] = (gemini_url, None, None)
+                print(f"Using Gemini server for {model} at {gemini_url}")
+    else:
+        # First, handle models with provided URLs
+        for model, url in zip(models, provided_urls):
+            if url and url != '':
+                # Use provided URL, no server spawning needed
+                model_processes[model] = (url, None, None)
+                print(f"Using existing server for {model} at {url}")
+            elif model:
+                # Model exists but no URL provided, needs server
+                models_needing_servers.append(model)
     
     # Remove duplicates while preserving order
     models_needing_servers = set(models_needing_servers)
@@ -790,16 +808,37 @@ def run_head_to_head_experiment(model_name, data_path, output_path, modification
 
     try:
         # breakpoint()
-        if server_type != "hflocal":
-            llm_client = client_class(model_name, base_url=model_processes[model_name][0])
-            attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
-            defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client
-        else:
+        if server_type == "hflocal":
             llm_client = client_class(model_name, None)
             attacker_llm_client = client_class(attacker_llm_model, base_url=None) if attacker_llm_model else llm_client     
-            defender_llm_client = client_class(defender_llm_model, base_url=None) if defender_llm_model else llm_client            
+            defender_llm_client = client_class(defender_llm_model, base_url=None) if defender_llm_model else llm_client
+        elif server_type in ["external", "gemini"]:
+            # For external and gemini servers, pass the API key
+            llm_client = client_class(model_name, base_url=model_processes[model_name][0], api_key=api_key)
+            attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0], api_key=api_key) if attacker_llm_model else llm_client     
+            defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0], api_key=api_key) if defender_llm_model else llm_client
+        elif server_type == "azure":
+            # model_name is the "azure_deployment" name
 
-        if server_type != "hflocal":
+            # We assume OX_AZURE_API_VERSION and OX_AZURE_ENDPOINT are set in the environment variables, this is to keep it separate from the rest
+            # of the configuration, since it should not be outputted to 
+            # the args file
+            dotenv.load_dotenv()
+            api_version = os.getenv("OX_AZURE_API_VERSION")
+            azure_endpoint = os.getenv("OX_AZURE_ENDPOINT")
+            if api_version is None or azure_endpoint is None:
+                raise ValueError("OX_AZURE_API_VERSION and OX_AZURE_ENDPOINT must be set in the environment variables for azure runs")
+
+            llm_client = ChatGPTAzureClient(model_name, api_version, azure_endpoint)
+            attacker_llm_client = ChatGPTAzureClient(attacker_llm_model, api_version, azure_endpoint) if attacker_llm_model else llm_client
+            defender_llm_client = ChatGPTAzureClient(defender_llm_model, api_version, azure_endpoint) if defender_llm_model else llm_client
+        else:
+            # For ollama and vllm servers, use default API key
+            llm_client = client_class(model_name, base_url=model_processes[model_name][0])
+            attacker_llm_client = client_class(attacker_llm_model, base_url=model_processes[attacker_llm_model][0]) if attacker_llm_model else llm_client     
+            defender_llm_client = client_class(defender_llm_model, base_url=model_processes[defender_llm_model][0]) if defender_llm_model else llm_client            
+
+        if server_type not in ["hflocal", "external", "gemini"]:
             llm_client.wait_for_server_to_start()
             attacker_llm_client.wait_for_server_to_start()
             defender_llm_client.wait_for_server_to_start()
