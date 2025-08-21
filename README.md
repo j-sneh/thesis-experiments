@@ -66,3 +66,14 @@ python run_multiple_experiments.py --baseline-mode --modification combination  -
 ```bash
 python run_multiple_experiments.py --baseline-mode --modification combination  --model llama3.1:8b --cluster-id 1 10 --server-type ollama --server-port 11436
 ```
+
+
+DEEPSEEK:
+```bash
+python run_multiple_experiments.py --server-type external --model "deepseek-reasoner" --baseline-mode --modification combination --max-workers 1 --api-key $DEEPSEEK_API_KEY --model-url $DEEPSEEK_URL --cluster-id 1 5
+```
+
+GEMINI:
+```bash
+python run_multiple_experiments.py --api-key $GOOGLE_API_KEY --server-type gemini --model gemini-2.5-flash --cluster-id 5 --tool-index 0 --debug
+```
