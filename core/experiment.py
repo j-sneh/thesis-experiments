@@ -9,10 +9,9 @@ import copy
 import os
 from concurrent.futures import ThreadPoolExecutor
 import threading
-import subprocess
-import time
 import random
 import dotenv
+import re
 
 class ThreadSafeCounter:
     def __init__(self):
@@ -702,6 +701,14 @@ class HeadToHeadExperiment:
                         question_results, percent, defended_tools
                     )
                     iteration += 1
+
+                    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", new_name):
+                        # replace all non-alphanumeric characters with an underscore
+                        new_name = re.sub(r"[^a-zA-Z0-9_]", "_", new_name)
+                        new_name = re.sub(r"_+", "_", new_name)
+                    if len(new_name) > 64:
+                        new_name = new_name[:63]
+                
                 
                 # Update the target tool with new description/name
                 if new_description is not None:

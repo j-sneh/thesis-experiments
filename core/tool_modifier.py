@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
 import copy
-from core.llm_clients import LLMClient
+# from core.llm_clients import LLMClient
 import re
 
 def duplicate_and_rename_tool(tool: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -72,7 +72,7 @@ def modify_tool_for_cluster_attack(tool: Dict[str, Any], new_description: str = 
     
     return modified_tool
 
-def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client: LLMClient) -> str:
+def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client) -> str:
     """
     Applies a defense mechanism to a tool.
 
@@ -98,7 +98,7 @@ def get_defended_description(tool: Dict[str, Any], defense_type: str, llm_client
     
     return modified_tool['function'].get('description', '')
 
-def llm_defense_mechanism(description: str, prompt_path: str, llm_client: LLMClient) -> str:
+def llm_defense_mechanism(description: str, prompt_path: str, llm_client) -> str:
     """
     Rewords the description of a tool by calling an LLM.
     """
