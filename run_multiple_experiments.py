@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import time
 import json
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from dataclasses import dataclass
@@ -133,7 +133,8 @@ def run_experiment_with_config(config: ExperimentConfig) -> Tuple[bool, int, int
 def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None, seed: int = 42, eval_mode: bool = False, eval_config: str = None, eval_attempt: int = None, modification: str = None, api_key: str = None):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
-    data_path = "data/clusters/bias_dataset_bfcl_format.jsonl"
+
+    data_path = "data/clusters/bias_dataset_openai_format.jsonl"
     question_start = 0
     question_end = 100 if not debug else 5
     attack_mode = "cluster-attack"
