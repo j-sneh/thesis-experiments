@@ -28,41 +28,41 @@ I have updated so that no looping in bash is needed to run model experiments, it
 
 
 We should run on all of these models:
-- qwen3:8b
-- llama3.2:3b
+- qwen2.5:7b
+- llama3.1:8b
 - gpt-oss:20b
 
 Each of the following commands should be run as different jobs.
 
 Run the default attacks (parallelization is on by default):
 ```bash
-python run_multiple_experiments.py --model qwen3:8b --cluster-id 1 10 --server-port 11434 --server-type ollama
+python run_multiple_experiments.py --model qwen2.5:7b --cluster-id 1 10 --server-port 11434 --server-type ollama
 ```
 ```bash
 python run_multiple_experiments.py --model gpt-oss:20b --cluster-id 1 10 --server-port 11436 --server-type ollama
 ```
 ```bash
-python run_multiple_experiments.py --model llama3.2:3b --cluster-id 1 10 --server-port 11435 --server-type ollama
+python run_multiple_experiments.py --model llama3.1:8b --cluster-id 1 10 --server-port 11435 --server-type ollama
 ```
 
 I have also implemented defense in the pipeline, which we should run with:
 
 ```bash
-python run_multiple_experiments.py --model qwen3:8b --cluster-id 1 10 --defense-mechanism objective --server-port 11434 --server-type ollama
+python run_multiple_experiments.py --model qwen2.5:7b --cluster-id 1 10 --defense-mechanism objective --server-port 11434 --server-type ollama
 ```
 ```bash
-python run_multiple_experiments.py --model llama3.2:3b --cluster-id 1 10 --defense-mechanism objective --server-port 11435 --server-type ollama
+python run_multiple_experiments.py --model llama3.1:8b --cluster-id 1 10 --defense-mechanism objective --server-port 11435 --server-type ollama
 ```
 ```bash
 python run_multiple_experiments.py --model gpt-oss:20b --cluster-id 1 10 --defense-mechanism objective --server-port 11436 --server-type ollama
 ```
 Run the baseline attack with the manual combination modification
 ```bash
-python run_multiple_experiments.py --baseline-mode --modification combination  --model qwen3:8b --cluster-id 1 10 --server-type ollama --server-port 11434
+python run_multiple_experiments.py --baseline-mode --modification combination  --model qwen2.5:7b --cluster-id 1 10 --server-type ollama --server-port 11434
 ```
 ```bash
 python run_multiple_experiments.py --baseline-mode --modification combination  --model gpt-oss:20b --cluster-id 1 10 --server-type ollama --server-port 11435
 ```
 ```bash
-python run_multiple_experiments.py --baseline-mode --modification combination  --model llama3.2:3b --cluster-id 1 10 --server-type ollama --server-port 11436
+python run_multiple_experiments.py --baseline-mode --modification combination  --model llama3.1:8b --cluster-id 1 10 --server-type ollama --server-port 11436
 ```
