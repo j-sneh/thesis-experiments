@@ -242,7 +242,24 @@ class HeadToHeadExperiment:
         # Add detailed feedback from current attempt
         feedback_info = f"OVERALL FEEDBACK: Your current modification was selected {overall_percent:.2f}% of the time.\n\n"
         feedback_info += f"Tools provided to the LLM:\n"
-        for _, tool in enumerate(tools_provided):
+
+        num_tools_included = 5
+        tools_included = tools_provided
+
+        if num_tools_included < len(tools_provided):
+            tools_included = []
+            tools_to_choose_from = []
+            for tool in tools_provided:
+                # Ensure the target tool is included
+                if tool['function']['name'] == current_name:
+                    tools_included.append(tool)
+                else:
+                    tools_to_choose_from.append(tool)
+            random.shuffle(tools_to_choose_from)
+            tools_included += tools_to_choose_from[:num_tools_included - len(tools_included)]
+
+        # Add the tools to the feedback
+        for _, tool in enumerate(tools_included):
             tool_name = tool['function']['name']
             tool_desc = tool['function'].get('description', 'No description')
             feedback_info += f"{tool_name} - {tool_desc} - {tool['function']['parameters']}\n"
@@ -250,7 +267,8 @@ class HeadToHeadExperiment:
         feedback_info += f"Here are a sample of the questions asked and the tools that were subsequently called:\n"
         # Select up to 5 successful and up to 5 unsuccessful trials, or 10 in total
         selected_results = []
-        if len(question_results) < 10:
+        num_queries = 10
+        if len(question_results) < num_queries:
             selected_results = question_results
         else:
             successful = []
@@ -263,11 +281,11 @@ class HeadToHeadExperiment:
             # Randomly shuffle the lists
             random.shuffle(successful)
             random.shuffle(unsuccessful)
-            # Take up to 5 from each, but if not enough, fill from the other
-            selected_results = successful[:5] + unsuccessful[:5]
-            if len(selected_results) < 10:
+            # Take up to num_queries//2 from each, but if not enough, fill from the other
+            selected_results = successful[:num_queries//2] + unsuccessful[:num_queries//2]
+            if len(selected_results) < num_queries:
                 # Fill up to 10 with remaining from either list
-                remaining = (successful[5:] + unsuccessful[5:])[:10 - len(selected_results)]
+                remaining = (successful[num_queries//2:] + unsuccessful[num_queries//2:])[:num_queries - len(selected_results)]
                 selected_results += remaining
 
         for result in selected_results:
