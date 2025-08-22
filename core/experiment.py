@@ -702,12 +702,13 @@ class HeadToHeadExperiment:
                     )
                     iteration += 1
 
-                    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", new_name):
-                        # replace all non-alphanumeric characters with an underscore
-                        new_name = re.sub(r"[^a-zA-Z0-9_]", "_", new_name)
-                        new_name = re.sub(r"_+", "_", new_name)
-                    if len(new_name) > 64:
-                        new_name = new_name[:63]
+                    if new_name is not None:
+                        if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", new_name):
+                            # replace all non-alphanumeric characters with an underscore
+                            new_name = re.sub(r"[^a-zA-Z0-9_]", "_", new_name)
+                            new_name = re.sub(r"_+", "_", new_name)
+                        if len(new_name) > 64:
+                            new_name = new_name[:63]
                 
                 
                 # Update the target tool with new description/name
