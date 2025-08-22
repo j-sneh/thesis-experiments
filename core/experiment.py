@@ -582,6 +582,8 @@ class HeadToHeadExperiment:
 
             current_description = all_tools[target_tool_index].get('description', '')
             current_name = all_tools[target_tool_index]['name']
+
+            all_other_tool_names = set([tool['name'] for tool in all_tools if tool['name'] != current_name])
             
             # Repl
             if self.eval_mode:
@@ -738,6 +740,10 @@ class HeadToHeadExperiment:
                             new_name = re.sub(r"_+", "_", new_name)
                         if len(new_name) > 64:
                             new_name = new_name[:63]
+                        if new_name in all_other_tool_names:
+                            # was sometimes copying names from other tools, which is not what we want
+                            print(f"New name {new_name} is already in use. Using current name {current_name} instead.")
+                            new_name = current_name
                 
                 
                 # Update the target tool with new description/name
