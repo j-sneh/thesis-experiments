@@ -387,7 +387,10 @@ def main():
         # Record command run
         base_dir.mkdir(exist_ok=True, parents=True)
         with open(base_dir / "args.json", "w") as f:
-            json.dump(vars(args), f)
+            # args without API key
+            args_dict = vars(args)
+            args_dict["api_key"] = "REDACTED"
+            json.dump(args_dict, f)
         
         # Build experiment configurations
         experiment_configs = []
@@ -465,7 +468,7 @@ def main():
         success = run_experiments_parallel(
             configs=experiment_configs,
             # Use in order to avoid being rate-limited (for now)
-            max_workers=args.max_workers if args.server_type != "gemini" and args.server_type != "external" else 1
+            max_workers=args.max_workers if args.server_type != "external" else 1
 
         )
         
