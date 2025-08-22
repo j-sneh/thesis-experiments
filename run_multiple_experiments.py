@@ -34,6 +34,8 @@ class ExperimentConfig:
     eval_attempt: Optional[int] = None
     modification: Optional[str] = None
     api_key: Optional[str] = None
+    num_feedback_tools: int = 5
+    num_feedback_queries: int = 10
 # Thread-safe lock for output printing
 print_lock = threading.Lock()
 
@@ -127,10 +129,12 @@ def run_experiment_with_config(config: ExperimentConfig) -> Tuple[bool, int, int
         eval_config=config.eval_config,
         eval_attempt=config.eval_attempt,
         modification=config.modification,
-        api_key=config.api_key
+        api_key=config.api_key,
+        num_feedback_tools=config.num_feedback_tools,
+        num_feedback_queries=config.num_feedback_queries
     ), config.cluster_id, config.tool_index
 
-def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None, seed: int = 42, eval_mode: bool = False, eval_config: str = None, eval_attempt: int = None, modification: str = None, api_key: str = None):
+def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: str, server_port: int, url: str, attacker_llm_model: str = None, defender_llm_model: str = None, defense_mechanism: str = "none", debug: bool = False, base_dir: Path = None, seed: int = 42, eval_mode: bool = False, eval_config: str = None, eval_attempt: int = None, modification: str = None, api_key: str = None, num_feedback_tools: int = 5, num_feedback_queries: int = 10):
     """Run a single experiment with the given parameters."""
     # Fixed parameters
 
@@ -181,6 +185,10 @@ def run_experiment(model: str, cluster_id: int, tool_index: int, server_type: st
     # Add external API parameters if specified
     if api_key is not None:
         cmd.extend(["--api-key", api_key])
+    
+    # Add feedback parameters for ablation studies
+    cmd.extend(["--num-feedback-tools", str(num_feedback_tools)])
+    cmd.extend(["--num-feedback-queries", str(num_feedback_queries)])
 
     if attacker_llm_model is not None:
         cmd.append("--attacker-llm-model")
@@ -305,6 +313,10 @@ def main():
     # Parallelization arguments
     parser.add_argument("--max-workers", type=int, default=5, help="Maximum number of parallel workers (default: 5), 1 is sequential")
     
+    # Feedback parameters (for cluster-attack mode)
+    parser.add_argument("--num-feedback-tools", type=int, default=5, help="Number of tools to include in attacker feedback (0-5, default: 5)")
+    parser.add_argument("--num-feedback-queries", type=int, default=10, help="Number of query results to include in attacker feedback (0-20, default: 10)")
+    
     args = parser.parse_args()
 
     # Validate mutually exclusive modes
@@ -325,6 +337,12 @@ def main():
     if args.server_type == "gemini":
         if args.api_key is None:
             parser.error("--api-key is required when server-type is 'gemini'")
+    
+    # Validate feedback parameters
+    if args.num_feedback_tools < 0 or args.num_feedback_tools > 5:
+        parser.error("--num-feedback-tools must be between 0 and 5")
+    if args.num_feedback_queries < 0 or args.num_feedback_queries > 20:
+        parser.error("--num-feedback-queries must be between 0 and 20")
         
     cluster_ids = None
     if len(args.cluster_id) == 1:
@@ -420,6 +438,8 @@ def main():
                         eval_config=eval_config,
                         eval_attempt=args.eval_attempt,
                         api_key=args.api_key,
+                        num_feedback_tools=args.num_feedback_tools,
+                        num_feedback_queries=args.num_feedback_queries,
                     )
                 elif args.baseline_mode:
                     config = ExperimentConfig(
@@ -437,7 +457,9 @@ def main():
                         seed=args.seed,
                         eval_mode=True,  # Use eval mode for single attempt
                         modification=args.modification,
-                        api_key=args.api_key
+                        api_key=args.api_key,
+                        num_feedback_tools=args.num_feedback_tools,
+                        num_feedback_queries=args.num_feedback_queries,
                     )
                 else:  # standard mode
                     config = ExperimentConfig(
@@ -453,7 +475,9 @@ def main():
                         base_dir=base_dir,
                         url=url,
                         seed=args.seed,
-                        api_key=args.api_key
+                        api_key=args.api_key,
+                        num_feedback_tools=args.num_feedback_tools,
+                        num_feedback_queries=args.num_feedback_queries,
                     )
                 
                 experiment_configs.append(config)

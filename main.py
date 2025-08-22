@@ -44,6 +44,10 @@ def main():
     # External API args (for external server type)
     parser.add_argument("--api-key", type=str, help="API key for external OpenAI-compatible server (required when server-type is 'external').")
     
+    # Feedback parameters (for cluster-attack mode)
+    parser.add_argument("--num-feedback-tools", type=int, default=5, help="Number of tools to include in attacker feedback (0-5, default: 5)")
+    parser.add_argument("--num-feedback-queries", type=int, default=10, help="Number of query results to include in attacker feedback (0-20, default: 10)")
+    
     args = parser.parse_args()
 
     # Validate cluster attack parameters
@@ -74,6 +78,12 @@ def main():
     if args.server_type == "gemini":
         if args.api_key is None:
             parser.error("--api-key is required when server-type is 'gemini'")
+
+    # Validate feedback parameters
+    if args.num_feedback_tools < 0 or args.num_feedback_tools > 5:
+        parser.error("--num-feedback-tools must be between 0 and 5")
+    if args.num_feedback_queries < 0 or args.num_feedback_queries > 20:
+        parser.error("--num-feedback-queries must be between 0 and 20")
 
     # Validate evaluation mode parameters
     if args.eval_mode:
@@ -129,7 +139,9 @@ def main():
         eval_description=args.eval_description,
         eval_config=args.eval_config,
         eval_attempt=args.eval_attempt,
-        api_key=args.api_key
+        api_key=args.api_key,
+        num_feedback_tools=args.num_feedback_tools,
+        num_feedback_queries=args.num_feedback_queries
     )
 
 if __name__ == "__main__":
