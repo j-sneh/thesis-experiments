@@ -388,7 +388,7 @@ def main():
         base_dir.mkdir(exist_ok=True, parents=True)
         with open(base_dir / "args.json", "w") as f:
             # args without API key
-            args_dict = vars(args)
+            args_dict = vars(args).copy()
             args_dict["api_key"] = "REDACTED"
             json.dump(args_dict, f)
         
