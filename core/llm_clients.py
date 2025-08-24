@@ -13,6 +13,7 @@ import base64
 from azure.identity import (
     AuthenticationRecord, get_bearer_token_provider, DeviceCodeCredential, TokenCachePersistenceOptions, DefaultAzureCredential)
 from openai import AzureOpenAI
+import backoff
 
 # TODO: standardise tool call response format so it matches OpenAI's format
 class LLMClient(ABC):
@@ -145,24 +146,22 @@ class OpenAIClient(LLMClient):
             api_key=api_key
         )
 
+    @backoff.on_exception(backoff.expo, openai.APIStatusError, max_tries=5)
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
         """
         Invoke the OpenAI Proxy model with a list of messages and a list of tools.
         """
-        try:
-            kwargs = {
+        kwargs = {
                 "model": self.model,
                 "messages": messages,
                 "tools": tools,
                 "temperature": temperature,
-            }
-            if seed is not None:
-                kwargs["seed"] = seed
+        }
+        if seed is not None:
+            kwargs["seed"] = seed
             
-            response = self.client.chat.completions.create(**kwargs).model_dump()
-            return response['choices'][0]
-        except Exception as e:
-            print(f"An error occurred: {e}")
+        response = self.client.chat.completions.create(**kwargs).model_dump()
+        return response['choices'][0]
     
     def wait_for_server_to_start(self, timeout: int = 600):
         """
@@ -195,24 +194,22 @@ class GeminiClient(LLMClient):
             api_key=api_key
         )
 
+    @backoff.on_exception(backoff.expo, openai.APIStatusError, max_tries=5)
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
         """
         Invoke the Gemini model with a list of messages and a list of tools.
         Note: Gemini does not support the seed parameter, so it's ignored.
         """
-        try:
-            kwargs = {
+        kwargs = {
                 "model": self.model,
                 "messages": messages,
                 "tools": tools,
                 "temperature": temperature,
-            }
+        }
             # Note: Gemini does not support the seed parameter, so it's ignored.
             
-            response = self.client.chat.completions.create(**kwargs).model_dump()
-            return response['choices'][0]
-        except Exception as e:
-            print(f"An error occurred: {e}")
+        response = self.client.chat.completions.create(**kwargs).model_dump()
+        return response['choices'][0]
     
     def wait_for_server_to_start(self, timeout: int = 600):
         """
@@ -277,26 +274,24 @@ class ChatGPTAzureClient(LLMClient):
             azure_ad_token_provider=token_provider
         )
     
+    @backoff.on_exception(backoff.expo, openai.APIStatusError, max_tries=5)
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
         """
         Invoke the Azure OpenAI model with a list of messages and a list of tools.
         """
-        try:
             # merge self.gen_config with kwargs
-            kwargs = {
+        kwargs = {
                 "model": self.model,
                 "messages": messages,
                 "tools": tools,
                 "temperature": temperature,
-            }
+        }
             
-            if seed is not None:
-                kwargs["seed"] = seed
+        if seed is not None:
+            kwargs["seed"] = seed
             
-            response = self.client.chat.completions.create(**kwargs).model_dump()
-            return response['choices'][0]
-        except Exception as e:
-            print(f"An error occurred: {e}")
+        response = self.client.chat.completions.create(**kwargs).model_dump()
+        return response['choices'][0]
         
 
 
