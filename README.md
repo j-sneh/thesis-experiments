@@ -120,3 +120,5 @@ python run_multiple_experiments.py --model "llama3.2:3b" --cluster-id 1 --num-fe
 # Using main.py  
 python main.py --attack-mode cluster-attack --cluster-id 1 --target-tool-index 0 --question-start 0 --question-end 100 --num-feedback-tools 0 --num-feedback-queries 15
 ```
+
+python run_multiple_experiments.py --server-type external --model "deepseek-chat" --api-key $DEEPSEEK_API_KEY --model-url $DEEPSEEK_URL --cluster-id 2 3
