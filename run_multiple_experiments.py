@@ -492,8 +492,7 @@ def main():
         success = run_experiments_parallel(
             configs=experiment_configs,
             # Use in order to avoid being rate-limited (for now)
-            max_workers=args.max_workers if args.server_type != "external" else 1
-
+            max_workers=args.max_workers
         )
         
         if not success:
