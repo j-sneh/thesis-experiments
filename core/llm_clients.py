@@ -274,7 +274,7 @@ class ChatGPTAzureClient(LLMClient):
             azure_ad_token_provider=token_provider
         )
     
-    @backoff.on_exception(backoff.expo, openai.APIStatusError, max_tries=5)
+    @backoff.on_exception(backoff.expo, (openai.APIStatusError, openai.RateLimitError),max_time=90)
     def invoke(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]|None, temperature: float = 0.0, seed: int = None) -> Dict[str, Any]:
         """
         Invoke the Azure OpenAI model with a list of messages and a list of tools.
