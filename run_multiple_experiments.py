@@ -102,7 +102,7 @@ def find_improvement_file(eval_dir: str, cluster_id: int, tool_index: int) -> st
         raise FileNotFoundError(f"Eval directory not found: {eval_dir}")
     
     # Pattern to match improvement history files for this specific cluster/tool
-    pattern = re.compile(rf'cluster-{cluster_id}-tool-{tool_index}-[^-]+-q\d+-\d+-improvement_history\.jsonl$')
+    pattern = re.compile(rf'cluster-{cluster_id}-tool-{tool_index}-.*-improvement_history\.jsonl$')
     
     for file_path in eval_path.rglob("*-improvement_history.jsonl"):
         if pattern.search(file_path.name):
