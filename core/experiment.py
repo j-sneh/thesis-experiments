@@ -247,11 +247,9 @@ class HeadToHeadExperiment:
         num_tools_included = self.num_feedback_tools
         
         # Only add tools feedback if num_feedback_tools > 0
+        tools_included = tools_provided
         if num_tools_included > 0:
             feedback_info += f"Tools provided to the LLM:\n"
-            
-            tools_included = tools_provided
-
             # if we are not including all tools, we need to select a subset of tools to include
             # we always include the target tool
             if num_tools_included < len(tools_provided):
@@ -263,7 +261,6 @@ class HeadToHeadExperiment:
                         tools_included.append(tool)
                     else:
                         tools_to_choose_from.append(tool)
-                random.shuffle(tools_to_choose_from)
                 tools_included += tools_to_choose_from[:num_tools_included - len(tools_included)]
 
             # Add the tools to the feedback
@@ -273,17 +270,20 @@ class HeadToHeadExperiment:
                 feedback_info += f"{tool_name} - {tool_desc} - {tool['function']['parameters']}\n"
         
         # Only add query feedback if num_feedback_queries > 0
+        tool_names_included = [tool['function']['name'] for tool in tools_included]
         num_queries = self.num_feedback_queries
         if num_queries > 0:
             feedback_info += f"Here are a sample of the questions asked and the tools that were subsequently called:\n"
             # Select up to half successful and half unsuccessful trials, or num_queries in total
+            # filter out results where not all tools were included
+            filtered_results = [result for result in question_results if all(tool_name in tool_names_included for tool_name in result['called_tool_names'])]
             selected_results = []
-            if len(question_results) < num_queries:
-                selected_results = question_results
+            if len(filtered_results) < num_queries:
+                selected_results = filtered_results
             else:
                 successful = []
                 unsuccessful = []
-                for result in question_results:
+                for result in filtered_results:
                     if result['target_tool_selected']:
                         successful.append(result)
                     else:
@@ -729,7 +729,7 @@ class HeadToHeadExperiment:
                         raise RuntimeError(f"Model failed to generate a valid JSON with a new description or name after {max_iters} iterations.")
                     improvement, new_description, new_name = self.cluster_attack_get_improvement_with_feedback(
                         all_tools[target_tool_index], improvement_history, current_description, current_name, 
-                        question_results, percent, defended_tools
+                        question_results, percent, formatted_tools
                     )
                     iteration += 1
 
