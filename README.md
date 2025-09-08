@@ -26,6 +26,22 @@ conda activate attack
 
 I have updated so that no looping in bash is needed to run model experiments, it can all be done by the script `run_multiple_experiments.py`. I made updates (to temperature + random order of tooling), so the experiments should be run again. 
 
+# Evaluations for AML - 
+
+# AML
+
+Run the attack loop, but with --defense-mechanism objective will have the attacker train on the defender
+```bash
+python run_multiple_experiments.py --model qwen2.5:7b --cluster-id 1 10 --server-type ollama --defense-mechanism objective
+```
+```bash
+python run_multiple_experiments.py --model gpt-oss:20b --cluster-id 1 10 --server-type ollama --defense-mechanism objective
+```
+```bash
+python run_multiple_experiments.py --model llama3.1:8b --cluster-id 1 10 --server-type ollama --defense-mechanism objective
+```
+
+
 
 # New Evaluations for AML - Transferability Experiments
 
@@ -390,6 +406,16 @@ python run_multiple_experiments.py --model "llama3.2:3b" --cluster-id 1 --num-fe
 # Using main.py  
 python main.py --attack-mode cluster-attack --cluster-id 1 --target-tool-index 0 --question-start 0 --question-end 100 --num-feedback-tools 0 --num-feedback-queries 15
 ```
+
+python run_multiple_experiments.py \
+    --server-type external \
+    --model "deepseek-chat" \
+    --num-feedback-tools 0 \
+    --num-feedback-queries 0 \
+    --api-key $DEEPSEEK_API_KEY --model-url $DEEPSEEK_URL \
+    --cluster-id 1 10 --max-workers 10
+
+
 
 python run_multiple_experiments.py --server-type external --model "deepseek-chat" --api-key $DEEPSEEK_API_KEY --model-url $DEEPSEEK_URL --cluster-id 2 3
 
